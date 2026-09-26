@@ -1,0 +1,191 @@
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
+/* Genre: modern-minimal · Theme: Obsidian Emerald · Font-Pairing: Space Grotesk + Plus Jakarta Sans + JetBrains Mono */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'mapbox-gl/dist/mapbox-gl.css';
+
+:root {
+  --color-canvas: #060809;
+  --color-surface-1: #0B0F12;
+  --color-surface-2: #11171B;
+  --color-border-subtle: rgba(255, 255, 255, 0.07);
+  --color-border-highlight: rgba(255, 255, 255, 0.14);
+  --color-ink-primary: #F4F6F7;
+  --color-ink-secondary: #94A3AB;
+  --color-ink-muted: #5E6E77;
+  --color-accent: #10B981;
+  --color-accent-bright: #34D399;
+}
+
+@layer base {
+  html,
+  body {
+    overflow-x: clip;
+    background-color: var(--color-canvas);
+    color: var(--color-ink-primary);
+    font-family: var(--font-jakarta), system-ui, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Architectural Display Typography Defaults */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+    font-style: normal;
+    letter-spacing: -0.04em;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    text-wrap: balance;
+  }
+
+  /* Slashed zeroes and tabular numerals in all mono elements */
+  code, kbd, samp, pre, .font-mono {
+    font-family: var(--font-jetbrains-mono), monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "zero" 1;
+  }
+}
+
+@layer components {
+  /* Fluid Display Headline Hierarchy */
+  .type-headline-hero {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+    font-size: clamp(2.4rem, 4.4vw + 0.5rem, 3.85rem);
+    line-height: 1.05;
+    letter-spacing: -0.045em;
+    font-weight: 600;
+  }
+
+  .type-headline-section {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+    font-size: clamp(1.65rem, 2.5vw + 0.5rem, 2.35rem);
+    line-height: 1.12;
+    letter-spacing: -0.035em;
+    font-weight: 600;
+  }
+
+  .type-headline-card {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+    font-size: 1.25rem;
+    line-height: 1.25;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+  }
+
+  /* Micro-Label & Telemetry Badges */
+  .type-mono-badge {
+    font-family: var(--font-jetbrains-mono), monospace;
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .type-mono-metric {
+    font-family: var(--font-space-grotesk), system-ui, sans-serif;
+    font-size: clamp(1.75rem, 2vw + 0.5rem, 2.35rem);
+    line-height: 1;
+    letter-spacing: -0.04em;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .type-body-editorial {
+    font-family: var(--font-jakarta), system-ui, sans-serif;
+    font-size: 1.0625rem;
+    line-height: 1.68;
+    color: #94A3AB;
+    max-width: 54ch;
+  }
+
+  /* Double-Bezel ("Doppelrand") Hardware Architecture */
+  .bezel-shell {
+    @apply p-1.5 rounded-[1.75rem] bg-white/[0.02] border border-white/[0.07] transition-colors duration-500;
+  }
+
+  .bezel-core {
+    @apply rounded-[calc(1.75rem-6px)] bg-[#0B0F12] border border-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)];
+  }
+
+  .eyebrow-pill {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] font-medium text-emerald-400 bg-emerald-500/[0.08] border border-emerald-500/20;
+  }
+}
+
+/* Custom precision scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #060809;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.5);
+}
+
+/* Mapbox Dark Precision Chrome Overrides */
+.mapboxgl-popup-content {
+  background: rgba(11, 15, 18, 0.96) !important;
+  backdrop-filter: blur(16px);
+  color: #F4F6F7 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 1rem !important;
+  padding: 1rem !important;
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.8) !important;
+}
+
+.mapboxgl-popup-tip {
+  border-top-color: rgba(11, 15, 18, 0.96) !important;
+  border-bottom-color: rgba(11, 15, 18, 0.96) !important;
+}
+
+.mapboxgl-ctrl-group {
+  background: rgba(11, 15, 18, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 0.75rem !important;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+}
+
+.mapboxgl-ctrl-group button {
+  filter: invert(1) brightness(1.8);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+.mapboxgl-ctrl-attrib {
+  background: rgba(6, 8, 9, 0.75) !important;
+  color: #5E6E77 !important;
+  font-family: var(--font-jetbrains-mono), monospace !important;
+  font-size: 10px !important;
+  border-radius: 9999px !important;
+  padding: 2px 8px !important;
+}
+
+.mapboxgl-ctrl-attrib a {
+  color: #94A3AB !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
