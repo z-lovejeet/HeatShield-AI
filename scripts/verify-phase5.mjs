@@ -38,7 +38,7 @@ async function main() {
     check(`File exists: ${rel}`, exists && size > 200, `${size} bytes`);
   }
 
-  // 2. Verify Recharts & Anti-Slop Design Tokens in DashboardCharts.tsx
+  // 2. Verify Recharts & Cozy Sage/Terracotta Design Tokens in DashboardCharts.tsx
   const chartsSrc = fs.readFileSync(
     path.join(ROOT, 'components/dashboard/DashboardCharts.tsx'),
     'utf-8'
@@ -51,10 +51,10 @@ async function main() {
       chartsSrc.includes('ResponsiveContainer')
   );
   check(
-    'DashboardCharts uses Bio-Emerald palette (#10B981, #34D399, #059669)',
-    chartsSrc.includes('#10B981') &&
-      chartsSrc.includes('#34D399') &&
-      chartsSrc.includes('#059669')
+    'DashboardCharts uses Cozy Botanical Sage & Terracotta palette (#5E9A7B, #D98A5B, #78B093)',
+    chartsSrc.includes('#5E9A7B') &&
+      chartsSrc.includes('#D98A5B') &&
+      chartsSrc.includes('#78B093')
   );
   check(
     'DashboardCharts renders 10-Year Canopy Maturation & CO2 Sequestration Trajectory (2026-2035)',
