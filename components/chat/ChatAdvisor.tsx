@@ -248,8 +248,8 @@ export function ChatAdvisor({
 
           if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
             return (
-              <div key={i} className="flex items-start gap-1.5 pl-1">
-                <span className="text-[#10B981] font-bold mt-0.5">•</span>
+              <div key={i} className="flex items-start gap-2 pl-1">
+                <span className="text-[#78B093] font-bold mt-0.5">•</span>
                 <span className="flex-1">{renderedParts}</span>
               </div>
             );
@@ -263,237 +263,223 @@ export function ChatAdvisor({
 
   return (
     <>
-      {/* Bottom-Right Floating Trigger Pill (when drawer is closed) */}
+      {/* Top-Right Floating Trigger Button inside Map Canvas (avoids Mapbox bottom-right zoom controls) */}
       {!isOpen && (
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-40 bezel-shell shadow-[0_20px_50px_rgba(0,0,0,0.85)] group"
+          className="absolute top-4 right-4 z-30 rounded-2xl bg-[#211F1C]/95 hover:bg-[#2A2724] border border-[#5E9A7B]/50 px-4 py-2.5 shadow-lg flex items-center gap-2.5 transition-colors"
           aria-label="Open HeatShield AI Advisor"
         >
-          <div className="bezel-core bg-[#060809]/95 hover:bg-[#0B0F12] backdrop-blur-xl px-4 py-2.5 border border-[#10B981]/40 flex items-center gap-3 transition-all">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#10B981]" />
+          <div className="w-7 h-7 rounded-lg bg-[#5E9A7B]/20 flex items-center justify-center text-[#78B093]">
+            <MessageSquare className="w-4 h-4" />
+          </div>
+          <div className="text-left">
+            <span className="text-xs font-semibold text-[#F5F3EF] block leading-tight">
+              Ask AI Climate Advisor
             </span>
-            <MessageSquare className="w-4 h-4 text-[#10B981]" />
-            <div className="text-left">
-              <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#F4F6F7] block">
-                HeatShield AI Advisor
-              </span>
-              <span className="font-mono text-[9px] text-[#10B981] block">
-                Groq LPU • Ask Climatologist
-              </span>
-            </div>
+            <span className="text-[11px] text-[#78B093] block">
+              Groq Chat &amp; Street Photo Vision
+            </span>
           </div>
         </button>
       )}
 
-      {/* Slide-Out Right Chat Drawer (400px–420px wide per UI-SPEC.md Screen 3) */}
+      {/* Slide-Out Right Chat Drawer inside Map Canvas */}
       {isOpen && (
-        <div className="fixed top-20 right-4 bottom-4 w-[92vw] sm:w-[410px] z-50 bezel-shell shadow-[0_30px_90px_rgba(0,0,0,0.95)] flex flex-col animate-in slide-in-from-right-6 duration-200">
-          <div className="bezel-core bg-[#060809]/95 backdrop-blur-2xl border border-[#10B981]/30 w-full h-full flex flex-col overflow-hidden">
-            {/* Drawer Header */}
-            <div className="p-3.5 border-b border-white/[0.08] flex items-center justify-between bg-[#0B0F12]/90">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-[#10B981]/15 border border-[#10B981]/35 flex items-center justify-center text-[#10B981]">
-                  <Bot className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-display text-sm font-bold text-[#F4F6F7]">
-                      HeatShield AI Advisor
-                    </h3>
-                    <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
-                  </div>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#10B981] block truncate max-w-[230px]">
-                    Context: {targetLabel}
-                  </span>
-                </div>
+        <div className="absolute top-3 right-3 bottom-3 w-[92vw] sm:w-[400px] z-40 rounded-2xl bg-[#211F1C] border border-[#38342F] shadow-2xl flex flex-col overflow-hidden">
+          {/* Drawer Header */}
+          <div className="p-3.5 border-b border-[#2F2C28] flex items-center justify-between bg-[#1B1917]">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-[#5E9A7B]/20 border border-[#5E9A7B]/40 flex items-center justify-center text-[#78B093]">
+                <Bot className="w-4 h-4" />
               </div>
-
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handleResetChat}
-                  title="Reset Conversation"
-                  className="p-1.5 rounded-lg text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.06] transition-colors"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  title="Close AI Advisor"
-                  className="p-1.5 rounded-lg text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.06] transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+              <div>
+                <h3 className="font-display text-sm font-semibold text-[#F5F3EF]">
+                  HeatShield AI Advisor
+                </h3>
+                <span className="text-xs text-[#78B093] block truncate max-w-[230px]">
+                  Area: {targetLabel}
+                </span>
               </div>
             </div>
 
-            {/* Message History Scroll Area */}
-            <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
-              {messages.map((msg) => {
-                const isUser = msg.role === "user";
-                return (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handleResetChat}
+                title="Reset Conversation"
+                className="p-1.5 rounded-lg text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.06] transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                title="Close AI Advisor"
+                className="p-1.5 rounded-lg text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.06] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Message History Scroll Area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+            {messages.map((msg) => {
+              const isUser = msg.role === "user";
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col ${
+                    isUser ? "items-end" : "items-start"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 mb-1 px-1 text-[11px] text-[#8C857B]">
+                    {isUser ? (
+                      <>
+                        <span>{msg.timestamp}</span>
+                        <span className="text-[#B8B1A7] flex items-center gap-1 font-medium">
+                          You <User className="w-3 h-3" />
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[#78B093] flex items-center gap-1 font-medium">
+                          <Sparkles className="w-3 h-3" />
+                          {msg.modelUsed || "Groq LPU"}
+                        </span>
+                        <span>· {msg.timestamp}</span>
+                      </>
+                    )}
+                  </div>
+
                   <div
-                    key={msg.id}
-                    className={`flex flex-col ${
-                      isUser ? "items-end" : "items-start"
+                    className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-[13px] leading-relaxed ${
+                      isUser
+                        ? "bg-[#5E9A7B] text-[#141311] font-medium rounded-br-sm"
+                        : "bg-[#181614] text-[#E6E1D8] border border-[#2F2C28] rounded-bl-sm"
                     }`}
                   >
-                    <div className="flex items-center gap-1.5 mb-1 px-1">
-                      {isUser ? (
-                        <>
-                          <span className="font-mono text-[9px] text-[#526068]">
-                            {msg.timestamp}
-                          </span>
-                          <span className="font-mono text-[9px] uppercase tracking-wider text-[#94A3AB] flex items-center gap-1">
-                            Planner <User className="w-2.5 h-2.5" />
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="font-mono text-[9px] uppercase tracking-wider text-[#10B981] flex items-center gap-1">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            {msg.modelUsed || "Groq LPU"}
-                          </span>
-                          <span className="font-mono text-[9px] text-[#526068]">
-                            • {msg.timestamp}
-                          </span>
-                        </>
-                      )}
-                    </div>
-
-                    <div
-                      className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                        isUser
-                          ? "bg-[#10B981] text-[#060809] font-medium rounded-br-sm"
-                          : "bg-[#0B0F12] text-[#D5DDE2] border border-white/[0.08] rounded-bl-sm"
-                      }`}
-                    >
-                      {msg.imagePreview && (
-                        <div className="mb-2 rounded-lg overflow-hidden border border-black/20">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={msg.imagePreview}
-                            alt="Uploaded urban surface"
-                            className="w-full max-h-36 object-cover"
-                          />
-                        </div>
-                      )}
-                      {isUser ? (
-                        <p>{msg.content}</p>
-                      ) : (
-                        renderFormattedContent(msg.content)
-                      )}
-                    </div>
+                    {msg.imagePreview && (
+                      <div className="mb-2 rounded-lg overflow-hidden border border-[#2F2C28]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={msg.imagePreview}
+                          alt="Uploaded urban surface"
+                          className="w-full max-h-36 object-cover"
+                        />
+                      </div>
+                    )}
+                    {isUser ? (
+                      <p>{msg.content}</p>
+                    ) : (
+                      renderFormattedContent(msg.content)
+                    )}
                   </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Pre-Loaded Suggestion Chips */}
-            <div className="px-3.5 py-2 border-t border-white/[0.06] bg-[#0B0F12]/60">
-              <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#526068] block mb-1.5">
-                Suggested Climatology Queries
-              </span>
-              <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-                {suggestionChips.map((chip, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    disabled={isStreaming}
-                    onClick={() => sendMessage(chip)}
-                    className="shrink-0 px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-[#10B981]/15 border border-white/[0.08] hover:border-[#10B981]/40 text-[10px] text-[#94A3AB] hover:text-[#F4F6F7] transition-all whitespace-nowrap"
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Optional Image Attachment Preview (for Qwen 3.8 Vision) */}
-            {imageAttachment && (
-              <div className="px-3.5 py-2 bg-[#10B981]/10 border-t border-[#10B981]/30 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Camera className="w-3.5 h-3.5 text-[#10B981]" />
-                  <span className="font-mono text-[10px] text-[#F4F6F7]">
-                    Image attached for{" "}
-                    <strong className="text-[#10B981]">qwen/qwen3.8-27b</strong>{" "}
-                    Vision Audit
-                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setImageAttachment(null)}
-                  className="text-[#94A3AB] hover:text-[#F4F6F7]"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            {/* Input Bar */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                sendMessage();
-              }}
-              className="p-3 border-t border-white/[0.08] bg-[#0B0F12] flex flex-col gap-2"
-            >
-              <div className="flex items-center gap-1.5">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Attach neighborhood photo or map screenshot for Qwen 3.8 Vision analysis"
-                  className="p-2 rounded-xl bg-white/[0.04] hover:bg-[#10B981]/15 border border-white/[0.08] hover:border-[#10B981]/40 text-[#94A3AB] hover:text-[#10B981] transition-colors shrink-0"
-                >
-                  <ImagePlus className="w-4 h-4" />
-                </button>
-
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask about cooling ROI, trees, albedo..."
-                  disabled={isStreaming}
-                  className="flex-1 bg-[#060809] border border-white/[0.1] rounded-xl px-3 py-2 text-xs text-[#F4F6F7] placeholder:text-[#526068] focus:outline-none focus:border-[#10B981]"
-                />
-
-                <button
-                  type="submit"
-                  disabled={isStreaming || (!input.trim() && !imageAttachment)}
-                  aria-label="Send message"
-                  className="p-2 rounded-xl bg-[#10B981] hover:bg-[#34D399] disabled:opacity-40 text-[#060809] transition-colors shrink-0"
-                >
-                  {isStreaming ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-
-              {/* Powered by Groq Badge per UI-SPEC.md Screen 3 */}
-              <div className="flex items-center justify-between px-1 font-mono text-[9px] text-[#526068]">
-                <span className="flex items-center gap-1">
-                  <Cpu className="w-2.5 h-2.5 text-[#10B981]" />
-                  Powered by Groq LPU ({activeModel})
-                </span>
-                <span>Qwen 3.8 Vision Enabled</span>
-              </div>
-            </form>
+              );
+            })}
+            <div ref={messagesEndRef} />
           </div>
+
+          {/* Pre-Loaded Suggestion Chips */}
+          <div className="px-3.5 py-2.5 border-t border-[#2F2C28] bg-[#1B1917]">
+            <span className="text-[11px] text-[#8C857B] block mb-1.5">
+              Quick Questions
+            </span>
+            <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+              {suggestionChips.map((chip, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  disabled={isStreaming}
+                  onClick={() => sendMessage(chip)}
+                  className="shrink-0 px-3 py-1 rounded-lg bg-[#25221F] hover:bg-[#5E9A7B]/20 border border-[#38342F] hover:border-[#5E9A7B]/45 text-xs text-[#D6D0C6] hover:text-[#F5F3EF] transition-colors whitespace-nowrap"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Optional Image Attachment Preview (for Qwen 3.8 Vision) */}
+          {imageAttachment && (
+            <div className="px-3.5 py-2 bg-[#5E9A7B]/15 border-t border-[#5E9A7B]/35 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-[#78B093]" />
+                <span className="text-xs text-[#F5F3EF]">
+                  Photo attached for{" "}
+                  <strong className="text-[#78B093]">qwen/qwen3.8-27b</strong>{" "}
+                  Vision Audit
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImageAttachment(null)}
+                className="text-[#B8B1A7] hover:text-[#F5F3EF]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Input Bar */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendMessage();
+            }}
+            className="p-3 border-t border-[#2F2C28] bg-[#1B1917] flex flex-col gap-2"
+          >
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach street photo for surface heat analysis"
+                className="p-2.5 rounded-xl bg-[#25221F] hover:bg-[#5E9A7B]/20 border border-[#38342F] text-[#B8B1A7] hover:text-[#78B093] transition-colors shrink-0"
+              >
+                <ImagePlus className="w-4 h-4" />
+              </button>
+
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask about cooling plans, trees, costs..."
+                disabled={isStreaming}
+                className="flex-1 bg-[#141311] border border-[#33302B] rounded-xl px-3.5 py-2 text-xs sm:text-[13px] text-[#F5F3EF] placeholder:text-[#8C857B] focus:outline-none focus:border-[#5E9A7B]"
+              />
+
+              <button
+                type="submit"
+                disabled={isStreaming || (!input.trim() && !imageAttachment)}
+                aria-label="Send message"
+                className="p-2.5 rounded-xl bg-[#5E9A7B] hover:bg-[#6CA889] disabled:opacity-40 text-[#141311] transition-colors shrink-0"
+              >
+                {isStreaming ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between px-1 text-[11px] text-[#8C857B]">
+              <span className="flex items-center gap-1.5">
+                <Cpu className="w-3 h-3 text-[#78B093]" />
+                Powered by Groq LPU ({activeModel})
+              </span>
+              <span>Qwen 3.8 Vision Enabled</span>
+            </div>
+          </form>
         </div>
       )}
     </>
