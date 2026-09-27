@@ -22,10 +22,12 @@ import {
   Sparkles,
   RefreshCw,
   Layers,
+  Download,
 } from 'lucide-react';
 
 interface SavedSimulationSnapshot {
   timestamp?: string;
+  cityId?: string;
   cityName?: string;
   targetZoneName?: string;
   config?: {
@@ -85,10 +87,21 @@ export default function DashboardPage() {
     initDashboard();
 
     try {
+      const savedCity = window.localStorage.getItem('heatshield_active_city');
+      if (savedCity === 'portland' || savedCity === 'phoenix' || savedCity === 'nyc') {
+        setSelectedCity(savedCity);
+      }
       const rawSim = window.localStorage.getItem('heatshield_last_simulation');
       if (rawSim) {
         const parsedSim = JSON.parse(rawSim) as SavedSimulationSnapshot;
         setLastSim(parsedSim);
+        if (
+          parsedSim.cityId === 'portland' ||
+          parsedSim.cityId === 'phoenix' ||
+          parsedSim.cityId === 'nyc'
+        ) {
+          setSelectedCity(parsedSim.cityId);
+        }
       }
       const rawAnalysis = window.localStorage.getItem('heatshield_last_analysis');
       if (rawAnalysis) {
@@ -208,39 +221,70 @@ export default function DashboardPage() {
     };
   }, [lastSim, selectedCity, activeHotspots, activeMeta.name]);
 
-  return (
-    <div className="min-h-screen bg-[#060809] text-[#F4F6F7] selection:bg-emerald-500/30 selection:text-emerald-200">
-      {/* Subtle Ambient Bio-Emerald Radial Glow */}
-      <div
-        className="pointer-events-none fixed inset-x-0 top-0 h-[420px] opacity-25"
-        style={{
-          background:
-            'radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.16), transparent 70%)',
-        }}
-      />
+  const handleExportSummary = () => {
+    if (typeof window === 'undefined') return;
+    const md = [
+      `# HeatShield AI — Municipal Cooling & ROI Impact Summary`,
+      `**City Sector:** ${activeMeta.name}, ${activeMeta.state}`,
+      `**Target Zone:** ${simParams.targetZone}`,
+      `**Real OSM Parcels Analyzed:** ${activeCollection?.features?.length || 420} (Global Total: ${globalStats.totalWays})`,
+      ``,
+      `## 1. Simulated Cooling & Financial ROI`,
+      `- **Peak Surface Temperature Drop:** ${simParams.deltaF.toFixed(1)}°F (${simParams.deltaC.toFixed(1)}°C)`,
+      `- **Intervention Mix:** ${simParams.treeCount} Street Trees · ${simParams.coolRoofPct}% Reflective Cool Roofs · ${simParams.waterFeatureCount} Water Features`,
+      `- **Annual Carbon Sequestration:** ${simParams.co2Tons.toFixed(1)} metric tons CO₂/yr`,
+      `- **Annual Grid Energy Saved:** ${simParams.energyMwh.toLocaleString()} MWh/yr`,
+      `- **Estimated Capital Cost:** $${simParams.costUSD.toLocaleString()}`,
+      ``,
+      `## 2. Top 5 Priority Heat Hotspots (${activeMeta.name})`,
+      ...activeHotspots.map(
+        (h) =>
+          `- **#${h.rank} ${h.name}:** ${h.peakTempF.toFixed(1)}°F peak (+${h.deltaF.toFixed(1)}°F UHI delta) — Surface: ${h.surfaceType}`
+      ),
+      ``,
+      `## 3. UN Sustainable Development Goals Alignment`,
+      `- **UN SDG 11 (Sustainable Cities & Communities):** Targets 11.7 & 11.b`,
+      `- **UN SDG 13 (Climate Action):** Target 13.1`,
+      `- **UN SDG 3 (Good Health & Well-Being):** Target 3.9`,
+    ].join('\n');
 
-      <main className="relative z-10 mx-auto max-w-7xl px-4 pb-24 pt-28 sm:px-6 lg:px-8">
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `heatshield-impact-${selectedCity}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#171614] text-[#F5F3EF]">
+      <main className="mx-auto max-w-7xl px-4 pb-24 pt-10 sm:px-6 lg:px-8">
         {/* Dashboard Hero & Benchmark Sector Selector */}
-        <div className="flex flex-col justify-between gap-6 border-b border-white/[0.07] pb-8 lg:flex-row lg:items-end">
+        <div className="flex flex-col justify-between gap-6 border-b border-[#2F2C28] pb-8 lg:flex-row lg:items-end">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[#34D399]">
-              <Activity className="h-3.5 w-3.5 text-[#10B981]" />
-              01 / Municipal Climate Resilience Telemetry
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#5E9A7B]/30 bg-[#5E9A7B]/10 px-3.5 py-1.5 text-[12px] font-medium text-[#78B093]">
+              <Activity className="h-3.5 w-3.5 text-[#5E9A7B]" />
+              Municipal Climate Resilience Overview
             </div>
-            <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-[#F4F6F7] sm:text-4xl">
+            <h1 className="mt-3 font-display text-3xl font-bold tracking-tight text-[#F5F3EF] sm:text-4xl">
               Urban Cooling Impact &amp; ROI Dashboard
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#94A3AB]">
-              Quantifying Land Surface Temperature (LST) attenuation, 10-year canopy carbon
-              sequestration, and peak HVAC grid load reduction across{' '}
-              <span className="font-mono text-[#F4F6F7]">{globalStats.totalWays.toLocaleString()}</span>{' '}
-              real OpenStreetMap urban ways.
+            <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-[#B8B1A7]">
+              Explore projected surface cooling, 10-year tree canopy carbon sequestration,
+              and energy savings across{' '}
+              <span className="font-mono font-semibold text-[#F5F3EF]">
+                {globalStats.totalWays.toLocaleString()}
+              </span>{' '}
+              real OpenStreetMap urban parcels.
             </p>
           </div>
 
-          {/* Interactive City Benchmark Selector + Launch 3D Map CTA */}
+          {/* Interactive City Benchmark Selector + Export + Launch 3D Map CTA */}
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center rounded-full border border-white/[0.08] bg-[#0B0F12] p-1">
+            <div className="flex items-center rounded-xl border border-[#33302B] bg-[#211F1C] p-1">
               {CITY_KEYS.map((key) => {
                 const city = SUPPORTED_CITIES[key];
                 const isActive = selectedCity === key;
@@ -248,11 +292,18 @@ export default function DashboardPage() {
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setSelectedCity(key)}
-                    className={`rounded-full px-3.5 py-1.5 font-mono text-xs transition-all ${
+                    onClick={() => {
+                      setSelectedCity(key);
+                      try {
+                        window.localStorage.setItem('heatshield_active_city', key);
+                      } catch {
+                        // Ignore storage errors
+                      }
+                    }}
+                    className={`rounded-lg px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
                       isActive
-                        ? 'bg-[#10B981] font-semibold text-[#060809] shadow-[0_0_20px_rgba(16,185,129,0.35)]'
-                        : 'text-[#94A3AB] hover:text-[#F4F6F7]'
+                        ? 'bg-[#5E9A7B] font-semibold text-[#141311]'
+                        : 'text-[#B8B1A7] hover:text-[#F5F3EF]'
                     }`}
                   >
                     {city.name.split('&')[0].trim()}, {city.state}
@@ -261,42 +312,48 @@ export default function DashboardPage() {
               })}
             </div>
 
-            <Link
-              href="/map"
-              className="group inline-flex items-center gap-2.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 pl-4 pr-2 py-1.5 text-xs font-semibold text-[#F4F6F7] transition-all hover:bg-emerald-500/20"
+            <button
+              type="button"
+              onClick={handleExportSummary}
+              className="inline-flex items-center gap-2 rounded-full border border-[#3E3A34] bg-[#211F1C] px-4 py-1.5 text-[13px] font-medium text-[#EAE5DD] transition-colors hover:bg-[#2A2724]"
             >
-              <span>Open 3D Thermal Map</span>
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#10B981] text-[#060809] transition-transform group-hover:translate-x-0.5">
+              <Download className="h-3.5 w-3.5 text-[#78B093]" />
+              <span>Export Summary (.md)</span>
+            </button>
+
+            <Link
+              href={`/map?city=${selectedCity}`}
+              className="group inline-flex items-center gap-2.5 rounded-full border border-[#3E3A34] bg-[#211F1C] pl-4 pr-2 py-1.5 text-[13px] font-semibold text-[#F5F3EF] transition-colors hover:bg-[#2A2724]"
+            >
+              <span>Open Heat Map</span>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#5E9A7B] text-[#141311] transition-transform group-hover:translate-x-0.5">
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </span>
             </Link>
           </div>
         </div>
 
-        {/* Live Session Sync Banner (if user ran a simulation or audit in /map) */}
-        <div className="mt-6 flex flex-col justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-[#0B0F12]/90 px-5 py-3.5 sm:flex-row sm:items-center">
+        {/* Live Session Sync Banner */}
+        <div className="mt-6 flex flex-col justify-between gap-3 rounded-2xl border border-[#33302B] bg-[#211F1C] px-5 py-3.5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10B981] opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#10B981]" />
-            </span>
-            <p className="font-mono text-xs text-[#F4F6F7]">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#78B093] shrink-0" />
+            <p className="text-[13px] text-[#EAE5DD]">
               {simParams.isLiveSession ? (
                 <>
-                  <span className="font-semibold text-[#34D399]">LIVE SESSION SYNC ACTIVE:</span>{' '}
-                  Displaying custom simulation telemetry for{' '}
-                  <span className="text-[#34D399]">{simParams.targetZone}</span> (
+                  <span className="font-semibold text-[#78B093]">Live Simulation Synced:</span>{' '}
+                  Showing custom scenario for{' '}
+                  <span className="font-medium text-[#F5F3EF]">{simParams.targetZone}</span> (
                   {simParams.treeCount} Trees · {simParams.coolRoofPct}% Cool Roofs ·{' '}
-                  {simParams.waterFeatureCount} Water Basins)
+                  {simParams.waterFeatureCount} Water Features)
                 </>
               ) : (
                 <>
-                  <span className="font-semibold text-[#34D399]">BENCHMARK TELEMETRY MODE:</span>{' '}
-                  Showing calibrated 100% real OpenStreetMap Overpass ways for{' '}
-                  <span className="text-[#34D399]">
+                  <span className="font-semibold text-[#78B093]">City Benchmark Active:</span>{' '}
+                  Showing real OpenStreetMap land-use data for{' '}
+                  <span className="font-medium text-[#F5F3EF]">
                     {activeMeta.name}, {activeMeta.state}
                   </span>{' '}
-                  (Peak Surface LST: {activeMeta.peakSurfaceF} · Mean UHI Delta: {activeMeta.meanDeltaF})
+                  (Peak Surface Temp: {activeMeta.peakSurfaceF} · Avg Heat Island: {activeMeta.meanDeltaF})
                 </>
               )}
             </p>
@@ -310,52 +367,52 @@ export default function DashboardPage() {
                   window.localStorage.removeItem('heatshield_last_simulation');
                   setLastSim(null);
                 }}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 font-mono text-[10px] text-[#94A3AB] hover:border-emerald-500/30 hover:text-[#F4F6F7]"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#33302B] bg-[#1A1816] px-3 py-1.5 text-xs font-medium text-[#B8B1A7] hover:text-[#F5F3EF]"
               >
                 <RefreshCw className="h-3 w-3" />
                 Reset to City Benchmark
               </button>
             )}
-            <span className="font-mono text-[10px] uppercase tracking-wider text-[#94A3AB]">
-              Synthetic Features: <strong className="text-[#10B981]">0</strong>
+            <span className="text-xs text-[#8C857B]">
+              100% Real OSM Data
             </span>
           </div>
         </div>
 
-        {/* 4 Double-Bezel Top Stat Cards */}
+        {/* 4 Cozy Top Stat Cards */}
         <section aria-label="Key Impact Metrics" className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            index="01 / SECTORS MAPPED"
-            label="Real OSM Urban Ways Analyzed"
-            value={`${globalStats.totalWays.toLocaleString()} Ways`}
-            subtext={`3 US Metro Benchmarks (420 real polygons/city · 0 synthetic points)`}
+            index="Sectors Mapped"
+            label="Real OSM Urban Parcels Analyzed"
+            value={`${globalStats.totalWays.toLocaleString()} Parcels`}
+            subtext="Across 3 US Metro Benchmarks (420 real polygons per city)"
             trendBadge="100% Real OSM"
             icon={Globe2}
             delay={0.02}
           />
           <StatCard
-            index="02 / THERMAL ANOMALIES"
+            index="Thermal Anomalies"
             label="Severe Heat Hotspots Detected"
-            value={`${globalStats.totalHotspotClusters} Clusters`}
-            subtext={`${globalStats.criticalAndHighCount} high-impervious ways · ${activeMeta.name} Peak ${activeMeta.peakSurfaceF}`}
+            value={`${globalStats.totalHotspotClusters} Zones`}
+            subtext={`${globalStats.criticalAndHighCount} high-heat parcels · ${activeMeta.name} Peak ${activeMeta.peakSurfaceF}`}
             trendBadge={`UHI ${activeMeta.meanDeltaF}`}
             icon={Flame}
             delay={0.08}
           />
           <StatCard
-            index="03 / SIMULATED COOLING"
-            label="Peak Surface Temp Attenuation"
+            index="Simulated Cooling"
+            label="Peak Surface Temp Reduction"
             value={`${simParams.deltaF.toFixed(1)}°F`}
             subtext={`Equivalent to ${simParams.deltaC.toFixed(1)}°C surface drop across ${simParams.targetZone}`}
-            trendBadge={`${simParams.treeCount} Trees + ${simParams.coolRoofPct}% SRI`}
+            trendBadge={`${simParams.treeCount} Trees + ${simParams.coolRoofPct}% Roofs`}
             icon={Snowflake}
             delay={0.14}
           />
           <StatCard
-            index="04 / CARBON & GRID ROI"
-            label="Annual Carbon & HVAC Offset"
+            index="Carbon & Grid ROI"
+            label="Annual Carbon & Energy Offset"
             value={`${simParams.co2Tons.toFixed(1)} tCO₂/yr`}
-            subtext={`Saves ${simParams.energyMwh.toLocaleString()} MWh/yr peak AC load · Est. CapEx $${(simParams.costUSD / 1000).toFixed(0)}k`}
+            subtext={`Saves ${simParams.energyMwh.toLocaleString()} MWh/yr AC load · Est. Cost $${(simParams.costUSD / 1000).toFixed(0)}k`}
             trendBadge={`${(simParams.co2Tons * 12.4).toFixed(0)} tCO₂ / 10-Yr`}
             icon={Leaf}
             delay={0.2}
@@ -363,19 +420,19 @@ export default function DashboardPage() {
         </section>
 
         {/* Interactive Recharts Analytics Section */}
-        <section aria-label="Interactive Thermal Charts" className="mt-10">
+        <section aria-label="Interactive Thermal Charts" className="mt-12">
           <div className="mb-5 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
             <div>
-              <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#34D399]">
-                02 / Empirical Microclimate Analytics ({activeMeta.name}, {activeMeta.state})
+              <span className="text-[12px] font-medium text-[#78B093]">
+                Neighborhood Cooling Analytics ({activeMeta.name}, {activeMeta.state})
               </span>
-              <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-[#F4F6F7]">
+              <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-[#F5F3EF]">
                 Hotspot Thermal Distribution &amp; 10-Year Canopy Trajectory
               </h2>
             </div>
-            <span className="font-mono text-xs text-[#94A3AB]">
+            <span className="text-xs font-mono text-[#8C857B]">
               {isLoadingData
-                ? 'Synchronizing real OpenStreetMap ways...'
+                ? 'Loading OpenStreetMap parcels...'
                 : `Active Dataset: ${activeCollection?.features?.length || 420} Real OSM Features`}
             </span>
           </div>
@@ -392,100 +449,98 @@ export default function DashboardPage() {
         </section>
 
         {/* Sector Hotspot Priority Matrix Table */}
-        <section aria-label="Sector Hotspot Priority Matrix" className="mt-10">
-          <div className="bezel-shell">
-            <div className="bezel-core p-6">
-              <div className="flex flex-col justify-between gap-3 border-b border-white/[0.06] pb-4 sm:flex-row sm:items-center">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Layers className="h-4 w-4 text-[#10B981]" />
-                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#34D399]">
-                      Real OpenStreetMap Cluster Telemetry
-                    </span>
-                  </div>
-                  <h3 className="mt-1 font-display text-lg font-bold tracking-tight text-[#F4F6F7]">
-                    Top 5 Priority Intervention Zones — {activeMeta.name}, {activeMeta.state}
-                  </h3>
+        <section aria-label="Sector Hotspot Priority Matrix" className="mt-12">
+          <div className="rounded-2xl border border-[#33302B] bg-[#211F1C] p-6 sm:p-7 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
+            <div className="flex flex-col justify-between gap-3 border-b border-[#2F2C28] pb-4 sm:flex-row sm:items-center">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-[#5E9A7B]" />
+                  <span className="text-[12px] font-medium text-[#78B093]">
+                    Priority Cooling Zones
+                  </span>
                 </div>
-                <Link
-                  href="/map"
-                  className="inline-flex items-center gap-1.5 font-mono text-xs text-[#34D399] hover:text-[#10B981]"
-                >
-                  <span>Inspect All Clusters in 3D WebGL</span>
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </Link>
+                <h3 className="mt-1 font-display text-lg font-bold tracking-tight text-[#F5F3EF]">
+                  Top 5 Heat Hotspots — {activeMeta.name}, {activeMeta.state}
+                </h3>
               </div>
+              <Link
+                href={`/map?city=${selectedCity}`}
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#78B093] hover:text-[#94C4AB]"
+              >
+                <span>Inspect All Zones on 3D Map</span>
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            </div>
 
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-white/[0.06] font-mono text-[10px] uppercase tracking-wider text-[#94A3AB]">
-                      <th className="py-3 pr-4">Rank</th>
-                      <th className="py-3 pr-4">OSM Urban Zone</th>
-                      <th className="py-3 pr-4">Surface Classification</th>
-                      <th className="py-3 pr-4">Baseline Peak LST</th>
-                      <th className="py-3 pr-4">UHI Anomaly</th>
-                      <th className="py-3 pr-4">Projected Cooled LST</th>
-                      <th className="py-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/[0.05] text-xs">
-                    {activeHotspots.map((spot, idx) => {
-                      const spotDrop = Number(
-                        Math.max(2.4, Math.abs(simParams.deltaF) * (1 - idx * 0.07)).toFixed(1)
-                      );
-                      const cooledF = (spot.peakTempF - spotDrop).toFixed(1);
-                      return (
-                        <tr
-                          key={spot.id}
-                          className="group transition-colors hover:bg-white/[0.02]"
-                        >
-                          <td className="py-3.5 pr-4 font-mono text-xs font-bold text-[#34D399] tabular-nums">
-                            #{spot.rank}
-                          </td>
-                          <td className="py-3.5 pr-4">
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-3.5 w-3.5 shrink-0 text-[#10B981]" />
-                              <div>
-                                <p className="font-semibold text-[#F4F6F7]">{spot.name}</p>
-                                <p className="font-mono text-[10px] text-[#94A3AB] tabular-nums">
-                                  {spot.coordinates[1].toFixed(4)}°N, {Math.abs(spot.coordinates[0]).toFixed(4)}°W ·{' '}
-                                  {spot.pointCount} OSM ways
-                                </p>
-                              </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[#2F2C28] text-[11px] font-semibold uppercase tracking-wider text-[#8C857B]">
+                    <th className="py-3 pr-4">Rank</th>
+                    <th className="py-3 pr-4">Neighborhood Zone</th>
+                    <th className="py-3 pr-4">Surface Type</th>
+                    <th className="py-3 pr-4">Baseline Peak</th>
+                    <th className="py-3 pr-4">Heat Island</th>
+                    <th className="py-3 pr-4">Projected Cooled</th>
+                    <th className="py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#2A2723] text-[13px]">
+                  {activeHotspots.map((spot, idx) => {
+                    const spotDrop = Number(
+                      Math.max(2.4, Math.abs(simParams.deltaF) * (1 - idx * 0.07)).toFixed(1)
+                    );
+                    const cooledF = (spot.peakTempF - spotDrop).toFixed(1);
+                    return (
+                      <tr
+                        key={spot.id}
+                        className="group transition-colors hover:bg-[#2A2724]/50"
+                      >
+                        <td className="py-3.5 pr-4 font-mono text-xs font-semibold text-[#E09F67] tabular-nums">
+                          #{spot.rank}
+                        </td>
+                        <td className="py-3.5 pr-4">
+                          <div className="flex items-center gap-2.5">
+                            <MapPin className="h-4 w-4 shrink-0 text-[#D98A5B]" />
+                            <div>
+                              <p className="font-semibold text-[#F5F3EF]">{spot.name}</p>
+                              <p className="font-mono text-[11px] text-[#8C857B] tabular-nums">
+                                {spot.coordinates[1].toFixed(4)}°N, {Math.abs(spot.coordinates[0]).toFixed(4)}°W ·{' '}
+                                {spot.pointCount} OSM parcels
+                              </p>
                             </div>
-                          </td>
-                          <td className="py-3.5 pr-4 font-mono text-[11px] uppercase text-[#94A3AB]">
-                            {spot.surfaceType.replace('_', ' ')}
-                          </td>
-                          <td className="py-3.5 pr-4 font-mono text-xs font-semibold text-[#F4F6F7] tabular-nums">
-                            {spot.peakTempF.toFixed(1)}°F{' '}
-                            <span className="text-[10px] text-[#94A3AB]">({spot.peakTempC.toFixed(1)}°C)</span>
-                          </td>
-                          <td className="py-3.5 pr-4 font-mono text-xs text-[#34D399] tabular-nums">
-                            +{spot.deltaF.toFixed(1)}°F
-                          </td>
-                          <td className="py-3.5 pr-4 font-mono text-xs font-bold text-[#10B981] tabular-nums">
-                            {cooledF}°F{' '}
-                            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-[#34D399]">
-                              -{spotDrop}°F
-                            </span>
-                          </td>
-                          <td className="py-3.5 text-right">
-                            <Link
-                              href="/map"
-                              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 font-mono text-[10px] font-medium text-[#34D399] transition-colors hover:bg-[#10B981] hover:text-[#060809]"
-                            >
-                              <Sparkles className="h-3 w-3" />
-                              Simulate
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 pr-4 text-xs capitalize text-[#B8B1A7]">
+                          {spot.surfaceType.replace(/_/g, ' ')}
+                        </td>
+                        <td className="py-3.5 pr-4 font-mono text-xs font-semibold text-[#F5F3EF] tabular-nums">
+                          {spot.peakTempF.toFixed(1)}°F{' '}
+                          <span className="text-[11px] text-[#8C857B]">({spot.peakTempC.toFixed(1)}°C)</span>
+                        </td>
+                        <td className="py-3.5 pr-4 font-mono text-xs text-[#E09F67] tabular-nums">
+                          +{spot.deltaF.toFixed(1)}°F
+                        </td>
+                        <td className="py-3.5 pr-4 font-mono text-xs font-semibold text-[#78B093] tabular-nums">
+                          {cooledF}°F{' '}
+                          <span className="ml-1 rounded-full border border-[#5E9A7B]/30 bg-[#5E9A7B]/12 px-2 py-0.5 text-[10px] text-[#78B093]">
+                            -{spotDrop}°F
+                          </span>
+                        </td>
+                        <td className="py-3.5 text-right">
+                          <Link
+                            href={`/map?city=${selectedCity}&hotspot=${spot.id}&tab=simulate`}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#3E3A34] bg-[#1A1816] px-3 py-1.5 text-xs font-medium text-[#EAE5DD] transition-colors hover:bg-[#5E9A7B] hover:border-[#5E9A7B] hover:text-[#141311]"
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            Simulate
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </section>

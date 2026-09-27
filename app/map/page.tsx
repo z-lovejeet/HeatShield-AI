@@ -8,6 +8,8 @@ import { HotspotMarkers } from "@/components/map/HotspotMarkers";
 import { SimulationPanel } from "@/components/simulation/SimulationPanel";
 import { AnalysisReport } from "@/components/chat/AnalysisReport";
 import { ChatAdvisor } from "@/components/chat/ChatAdvisor";
+import { HealthSafetyPanel } from "@/components/health/HealthSafetyPanel";
+import { CoolRefugeSpot } from "@/lib/health-advisor";
 import {
   ThermalFeatureCollection,
   loadCityThermalData,
@@ -23,6 +25,7 @@ import { MapContextPayload } from "@/lib/prompts";
 import {
   CheckCircle2,
   FileSpreadsheet,
+  HeartPulse,
   Layers,
   Loader2,
   Radio,
@@ -50,13 +53,16 @@ export default function MapPage() {
     useState<ThermalFeatureCollection | null>(null);
   const [hotspots, setHotspots] = useState<Hotspot[]>([]);
   const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
+  const [focusedRefuge, setFocusedRefuge] = useState<CoolRefugeSpot | null>(
+    null
+  );
   const [isCalculatingThermal, setIsCalculatingThermal] =
     useState<boolean>(true);
 
-  // Left Sidebar Tab State: "controls" (Layers) | "simulate" ("What-If?" Sim) | "analyze" (Gemini AI Audit)
-  const [leftTab, setLeftTab] = useState<"controls" | "simulate" | "analyze">(
-    "controls"
-  );
+  // Left Sidebar Tab State: "controls" (Hotspots) | "health" (Personal Leave-Home & Health Guide) | "simulate" (Cooling Sim) | "analyze" (AI Audit)
+  const [leftTab, setLeftTab] = useState<
+    "controls" | "health" | "simulate" | "analyze"
+  >("controls");
   const [auditTriggerCount, setAuditTriggerCount] = useState<number>(0);
 
   // Layer Controls State
@@ -72,8 +78,71 @@ export default function MapPage() {
   const [targetHotspot, setTargetHotspot] = useState<Hotspot | null>(null);
   const [isBaselinePreview, setIsBaselinePreview] = useState<boolean>(false);
   const [simulationNotice, setSimulationNotice] = useState<string | null>(null);
+  const [pendingDeepLink, setPendingDeepLink] = useState<{
+    hotspotId?: string;
+    trees?: number;
+    roofs?: number;
+    water?: number;
+    radius?: number;
+  } | null>(null);
 
-  // Load real OSM + satellite LST dataset whenever city or custom location changes
+  // Hydrate URL query parameters (?city=...&tab=...&hotspot=...&trees=...&roofs=...&water=...) or last active city on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const cityParam = params.get("city")?.toLowerCase();
+    const tabParam = params.get("tab")?.toLowerCase();
+    const hotspotParam = params.get("hotspot");
+    const treesParam = params.get("trees");
+    const roofsParam = params.get("roofs");
+    const waterParam = params.get("water");
+    const radiusParam = params.get("radius");
+
+    if (cityParam && SUPPORTED_CITIES[cityParam]) {
+      setActiveCityId(cityParam);
+    } else {
+      try {
+        const savedCity = localStorage.getItem("heatshield_active_city");
+        if (savedCity && SUPPORTED_CITIES[savedCity]) {
+          setActiveCityId(savedCity);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    }
+
+    if (
+      tabParam === "controls" ||
+      tabParam === "health" ||
+      tabParam === "simulate" ||
+      tabParam === "analyze"
+    ) {
+      setLeftTab(tabParam);
+    } else if (treesParam || roofsParam || waterParam) {
+      setLeftTab("simulate");
+    }
+
+    if (hotspotParam || treesParam || roofsParam || waterParam) {
+      setPendingDeepLink({
+        hotspotId: hotspotParam || undefined,
+        trees: treesParam ? parseInt(treesParam, 10) : undefined,
+        roofs: roofsParam ? parseInt(roofsParam, 10) : undefined,
+        water: waterParam ? parseInt(waterParam, 10) : undefined,
+        radius: radiusParam ? parseInt(radiusParam, 10) : undefined,
+      });
+    }
+  }, []);
+
+  // Persist active benchmark city to localStorage so /dashboard stays synced
+  useEffect(() => {
+    if (customLocation) return;
+    try {
+      localStorage.setItem("heatshield_active_city", activeCityId);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [activeCityId, customLocation]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -81,6 +150,7 @@ export default function MapPage() {
       setIsCalculatingThermal(true);
       setSelectedHotspot(null);
       setTargetHotspot(null);
+      setFocusedRefuge(null);
       setSimConfig(DEFAULT_INTERVENTION_CONFIG);
       setIsBaselinePreview(false);
 
@@ -99,10 +169,9 @@ export default function MapPage() {
             }
           }
         } else {
-          // Minimum brief telemetry calibration visibility on city switch so user sees calculation status
           const [data] = await Promise.all([
             loadCityThermalData(activeCityId),
-            new Promise((resolve) => setTimeout(resolve, 650)),
+            new Promise((resolve) => setTimeout(resolve, 500)),
           ]);
           if (isMounted) {
             setThermalData(data);
@@ -126,7 +195,57 @@ export default function MapPage() {
     };
   }, [activeCityId, customLocation]);
 
-  // Keep simulation target synchronized when user clicks a hotspot marker or card
+  // Apply deep-linked hotspot or shared simulation parameters once hotspots are loaded
+  useEffect(() => {
+    if (!pendingDeepLink || hotspots.length === 0 || isCalculatingThermal) {
+      return;
+    }
+
+    let matchedSpot = hotspots[0];
+    if (pendingDeepLink.hotspotId) {
+      const found = hotspots.find(
+        (h) =>
+          h.id === pendingDeepLink.hotspotId ||
+          String(h.rank) === pendingDeepLink.hotspotId
+      );
+      if (found) matchedSpot = found;
+    }
+
+    setSelectedHotspot(matchedSpot);
+    setTargetHotspot(matchedSpot);
+
+    const hasCustomSimParams =
+      (pendingDeepLink.trees && pendingDeepLink.trees > 0) ||
+      (pendingDeepLink.roofs && pendingDeepLink.roofs > 0) ||
+      (pendingDeepLink.water && pendingDeepLink.water > 0);
+
+    if (hasCustomSimParams) {
+      setTimeout(() => {
+        setSimConfig({
+          treeCount: pendingDeepLink.trees || 0,
+          coolRoofPct: pendingDeepLink.roofs || 0,
+          waterFeatureCount: pendingDeepLink.water || 0,
+          radiusMeters: pendingDeepLink.radius || 600,
+          sectorWide: false,
+        });
+      }, 250);
+    } else if (leftTab === "simulate") {
+      // Trigger default simulation when arriving from Dashboard "Simulate" button
+      setTimeout(() => {
+        setSimConfig((prev) => ({
+          treeCount: prev.treeCount > 0 ? prev.treeCount : 900,
+          coolRoofPct: prev.coolRoofPct > 0 ? prev.coolRoofPct : 55,
+          waterFeatureCount:
+            prev.waterFeatureCount > 0 ? prev.waterFeatureCount : 6,
+          radiusMeters: prev.radiusMeters,
+          sectorWide: false,
+        }));
+      }, 250);
+    }
+
+    setPendingDeepLink(null);
+  }, [pendingDeepLink, hotspots, isCalculatingThermal, leftTab]);
+
   const handleSelectHotspot = (hotspot: Hotspot | null) => {
     setSelectedHotspot(hotspot);
     if (hotspot) {
@@ -161,7 +280,6 @@ export default function MapPage() {
     ? `${customLocation.name}, ${customLocation.state}`
     : `${currentCityMeta.name}, ${currentCityMeta.state}`;
 
-  // Determine the exact target coordinates for the cooling simulation
   const effectiveTargetHotspot =
     targetHotspot ||
     selectedHotspot ||
@@ -175,7 +293,6 @@ export default function MapPage() {
     simConfig.coolRoofPct > 0 ||
     simConfig.waterFeatureCount > 0;
 
-  // Run physical cooling simulation in real time (< 16ms for 420 OSM features)
   const simulationResult = useMemo(() => {
     if (!thermalData) return null;
     return runCoolingSimulation(
@@ -185,12 +302,12 @@ export default function MapPage() {
     );
   }, [thermalData, simulationTargetCoords, simConfig]);
 
-  // Persist latest active simulation summary to localStorage for /dashboard
   useEffect(() => {
     if (!simulationResult || !hasActiveInterventions) return;
     try {
       const payload = {
         timestamp: new Date().toISOString(),
+        cityId: activeCityId,
         cityName: activeCityName,
         targetZoneName: simConfig.sectorWide
           ? `${activeCityName} Metro Sector`
@@ -214,35 +331,37 @@ export default function MapPage() {
         JSON.stringify(payload)
       );
     } catch {
-      // Ignore storage quota errors in private browsing
+      // Ignore storage quota errors
     }
   }, [
     simulationResult,
     hasActiveInterventions,
+    activeCityId,
     activeCityName,
     effectiveTargetHotspot,
     simConfig,
   ]);
 
-  // Triggered when user clicks "Simulate Cooling" on any Hotspot card
   const handleSimulateHotspot = (hotspot: Hotspot) => {
     setSelectedHotspot(hotspot);
     setTargetHotspot(hotspot);
     setLeftTab("simulate");
     setIsBaselinePreview(false);
 
-    // Pre-populate a high-impact cooling intervention stack so the user immediately sees the map cool down
-    setSimConfig((prev) => ({
-      treeCount: prev.treeCount > 0 ? prev.treeCount : 850,
-      coolRoofPct: prev.coolRoofPct > 0 ? prev.coolRoofPct : 45,
-      waterFeatureCount:
-        prev.waterFeatureCount > 0 ? prev.waterFeatureCount : 5,
-      radiusMeters: prev.radiusMeters,
-      sectorWide: false,
-    }));
+    // Briefly show baseline red hotspot for 300ms while camera centers, then trigger smooth cooling transition
+    setTimeout(() => {
+      setSimConfig((prev) => ({
+        treeCount: prev.treeCount > 0 ? prev.treeCount : 900,
+        coolRoofPct: prev.coolRoofPct > 0 ? prev.coolRoofPct : 55,
+        waterFeatureCount:
+          prev.waterFeatureCount > 0 ? prev.waterFeatureCount : 6,
+        radiusMeters: prev.radiusMeters,
+        sectorWide: false,
+      }));
+    }, 300);
 
     setSimulationNotice(
-      `Simulating Cooling on "${hotspot.name}" (${hotspot.peakTempF.toFixed(
+      `Simulating cooling on "${hotspot.name}" (${hotspot.peakTempF.toFixed(
         1
       )}°F baseline)`
     );
@@ -251,7 +370,6 @@ export default function MapPage() {
     }, 4500);
   };
 
-  // Triggered when user clicks "AI Audit" on any Hotspot card
   const handleAuditHotspot = (hotspot: Hotspot) => {
     setSelectedHotspot(hotspot);
     setTargetHotspot(hotspot);
@@ -259,7 +377,6 @@ export default function MapPage() {
     setAuditTriggerCount((prev) => prev + 1);
   };
 
-  // Triggered when user clicks "Apply Prescription to 3D Simulator" inside AnalysisReport
   const handleApplyAiPrescription = (prescription: {
     treeCount: number;
     coolRoofPct: number;
@@ -276,37 +393,60 @@ export default function MapPage() {
     setLeftTab("simulate");
 
     setSimulationNotice(
-      `Applied Gemini AI Prescription (${prescription.treeCount} trees, ${prescription.coolRoofPct}% cool roofs, ${prescription.waterFeatureCount} bioswales)`
+      `Applied AI cooling plan (${prescription.treeCount} trees, ${prescription.coolRoofPct}% cool roofs, ${prescription.waterFeatureCount} water basins)`
     );
     setTimeout(() => {
       setSimulationNotice(null);
     }, 4500);
   };
 
-  // Decide whether CoreMap renders baseline thermalData or simulated modifiedGeoJSON
   const displayedThermalData =
     hasActiveInterventions && !isBaselinePreview && simulationResult
       ? simulationResult.modifiedGeoJSON
       : thermalData;
 
-  // Geodesic Bio-Emerald circle overlay on the map when Simulator is open or active (and not sector-wide)
   const simulationZoneOverlay = useMemo(() => {
-    if (simConfig.sectorWide) return null;
+    const activeCoolingDelta =
+      hasActiveInterventions && !isBaselinePreview && simulationResult
+        ? simulationResult.temperatureDeltaF
+        : 0;
+
+    if (simConfig.sectorWide) {
+      if (!hasActiveInterventions) return null;
+      return {
+        center: simulationTargetCoords,
+        radiusMeters: 2200,
+        active: true,
+        coolingDeltaF: activeCoolingDelta,
+        baselinePeakTempF: simulationResult?.baselinePeakTempF,
+        projectedPeakTempF: simulationResult?.projectedPeakTempF,
+        zoneName: `${activeCityName} Metro Sector`,
+      };
+    }
     if (leftTab !== "simulate" && !hasActiveInterventions) return null;
     return {
       center: simulationTargetCoords,
       radiusMeters: simConfig.radiusMeters,
       active: true,
+      coolingDeltaF: activeCoolingDelta,
+      baselinePeakTempF:
+        simulationResult?.baselinePeakTempF ||
+        effectiveTargetHotspot?.peakTempF,
+      projectedPeakTempF: simulationResult?.projectedPeakTempF,
+      zoneName: effectiveTargetHotspot?.name || `${activeCityName} Core`,
     };
   }, [
     leftTab,
     hasActiveInterventions,
+    isBaselinePreview,
+    simulationResult,
     simulationTargetCoords,
     simConfig.radiusMeters,
     simConfig.sectorWide,
+    effectiveTargetHotspot,
+    activeCityName,
   ]);
 
-  // Build live telemetry context for Groq Chat Advisor
   const liveMapContext: MapContextPayload = useMemo(
     () => ({
       cityName: activeCityName,
@@ -361,10 +501,242 @@ export default function MapPage() {
   );
 
   return (
-    <div className="w-full h-[100dvh] pt-20 pb-3 px-3 sm:px-4 bg-[#060809] flex flex-col overflow-hidden">
-      <div className="flex-1 w-full bezel-shell shadow-[0_30px_100px_rgba(0,0,0,0.9)] relative overflow-hidden">
-        <div className="bezel-core w-full h-full overflow-hidden relative">
-          {/* Core 3D WebGL Map */}
+    <div className="w-full h-[calc(100dvh-3.5rem)] bg-[#171614] flex flex-col overflow-hidden">
+      {/* Dedicated Top Control Bar (Zero Overlap with Map or Sidebar) */}
+      <div className="bg-[#1B1917] border-b border-[#2F2C28] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 z-30">
+        <CitySearch
+          activeCityId={activeCityId}
+          customCityName={
+            customLocation
+              ? `${customLocation.name}, ${customLocation.state}`
+              : null
+          }
+          onSelectPresetCity={handleSelectPresetCity}
+          onSelectCustomLocation={handleSelectCustomLocation}
+        />
+
+        {/* Right Status & Active Simulation Bar */}
+        <div className="hidden xl:flex items-center gap-3">
+          {hasActiveInterventions && simulationResult && (
+            <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#5E9A7B]/15 border border-[#5E9A7B]/40">
+              <span className="w-2 h-2 rounded-full bg-[#78B093]" />
+              <span className="text-xs font-medium text-[#F5F3EF]">
+                {isBaselinePreview
+                  ? "Viewing Before (Baseline)"
+                  : `Cooling Active: ${simulationResult.temperatureDeltaF.toFixed(
+                      1
+                    )}°F (${simulationResult.temperatureDeltaC.toFixed(1)}°C)`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsBaselinePreview(!isBaselinePreview)}
+                className="px-2.5 py-0.5 rounded-lg bg-[#5E9A7B] text-[#141311] text-xs font-semibold hover:bg-[#6CA889] transition-colors"
+              >
+                {isBaselinePreview ? "Show Cooled" : "Compare Before"}
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#141311] border border-[#2C2925] text-xs">
+            {isCalculatingThermal ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 text-[#78B093] animate-spin" />
+                <span className="text-[#B8B1A7]">Mapping heat zones...</span>
+              </>
+            ) : (
+              <>
+                <Radio className="w-3.5 h-3.5 text-[#78B093]" />
+                <span className="text-[#B8B1A7]">{activeCityName}:</span>
+                <span className="font-mono font-semibold text-[#78B093] tabular-nums">
+                  {thermalData ? thermalData.features.length : 0} OSM ways
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Split-Screen Workspace (Docked Left Sidebar + Unobstructed Right 3D Map) */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+        {/* Docked Left Sidebar */}
+        <aside className="w-full md:w-[390px] lg:w-[430px] shrink-0 bg-[#1B1917] border-b md:border-b-0 md:border-r border-[#2F2C28] flex flex-col h-[46%] md:h-full z-20">
+          {/* 4-Tab Segmented Switcher */}
+          <div className="p-3 border-b border-[#2F2C28] shrink-0">
+            <div className="bg-[#141311] border border-[#2C2925] rounded-xl p-1 grid grid-cols-4 gap-1">
+              <button
+                type="button"
+                onClick={() => setLeftTab("controls")}
+                className={`flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  leftTab === "controls"
+                    ? "bg-[#5E9A7B] text-[#141311] font-semibold"
+                    : "text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.04]"
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Hotspots</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeftTab("health")}
+                className={`flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  leftTab === "health"
+                    ? "bg-[#5E9A7B] text-[#141311] font-semibold"
+                    : "text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.04]"
+                }`}
+              >
+                <HeartPulse className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Health</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeftTab("simulate")}
+                className={`flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-medium transition-colors relative ${
+                  leftTab === "simulate"
+                    ? "bg-[#5E9A7B] text-[#141311] font-semibold"
+                    : "text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.04]"
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Simulator</span>
+                {hasActiveInterventions && leftTab !== "simulate" && (
+                  <span className="w-2 h-2 rounded-full bg-[#78B093] absolute top-1.5 right-1" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLeftTab("analyze")}
+                className={`flex items-center justify-center gap-1 py-2 px-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  leftTab === "analyze"
+                    ? "bg-[#5E9A7B] text-[#141311] font-semibold"
+                    : "text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.04]"
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">AI Audit</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable Sidebar Body */}
+          <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
+            {leftTab === "controls" && (
+              <>
+                <HotspotMarkers
+                  hotspots={hotspots}
+                  selectedHotspot={selectedHotspot}
+                  onSelectHotspot={handleSelectHotspot}
+                  onSimulateHotspot={handleSimulateHotspot}
+                  onAuditHotspot={handleAuditHotspot}
+                  onOpenHealthGuide={(hs) => {
+                    setSelectedHotspot(hs);
+                    setTargetHotspot(hs);
+                    setLeftTab("health");
+                  }}
+                  activeCoolingDropF={
+                    hasActiveInterventions &&
+                    !isBaselinePreview &&
+                    simulationResult
+                      ? Math.abs(simulationResult.temperatureDeltaF)
+                      : 0
+                  }
+                />
+
+                <MapControls
+                  showHeatmap={showHeatmap}
+                  onToggleHeatmap={setShowHeatmap}
+                  heatmapOpacity={heatmapOpacity}
+                  onChangeOpacity={setHeatmapOpacity}
+                  showHotspots={showHotspots}
+                  onToggleHotspots={setShowHotspots}
+                  show3DBuildings={show3DBuildings}
+                  onToggle3DBuildings={setShow3DBuildings}
+                  currentCoords={activeCenter}
+                  activeCityName={activeCityName}
+                />
+              </>
+            )}
+
+            {leftTab === "health" && (
+              <HealthSafetyPanel
+                hotspots={hotspots}
+                targetHotspot={effectiveTargetHotspot}
+                onSelectTargetHotspot={(hs) => {
+                  setTargetHotspot(hs);
+                  setSelectedHotspot(hs);
+                }}
+                thermalData={thermalData}
+                activeCityName={activeCityName}
+                activeCenter={activeCenter}
+                activeCoolingDropF={
+                  hasActiveInterventions &&
+                  !isBaselinePreview &&
+                  simulationResult
+                    ? Math.abs(simulationResult.temperatureDeltaF)
+                    : 0
+                }
+                onOpenSimulator={() => {
+                  if (effectiveTargetHotspot) {
+                    handleSimulateHotspot(effectiveTargetHotspot);
+                  } else {
+                    setLeftTab("simulate");
+                  }
+                }}
+                onFlyToCoolRefuge={(refuge) => {
+                  setFocusedRefuge(refuge);
+                  setSimulationNotice(
+                    `Flying to cool refuge: "${refuge.name}" (${refuge.temperatureF}°F)`
+                  );
+                  setTimeout(() => {
+                    setSimulationNotice(null);
+                  }, 4000);
+                }}
+              />
+            )}
+
+            {leftTab === "simulate" && (
+              <SimulationPanel
+                hotspots={hotspots}
+                targetHotspot={effectiveTargetHotspot}
+                onSelectTargetHotspot={(hs) => {
+                  setTargetHotspot(hs);
+                  if (hs) setSelectedHotspot(hs);
+                }}
+                config={simConfig}
+                onChangeConfig={setSimConfig}
+                simulationResult={simulationResult}
+                isBaselinePreview={isBaselinePreview}
+                onToggleBaselinePreview={setIsBaselinePreview}
+                onResetSimulation={() => {
+                  setSimConfig(DEFAULT_INTERVENTION_CONFIG);
+                  setIsBaselinePreview(false);
+                }}
+                activeCityName={activeCityName}
+                activeCityId={activeCityId}
+              />
+            )}
+
+            {leftTab === "analyze" && (
+              <AnalysisReport
+                hotspots={hotspots}
+                targetHotspot={effectiveTargetHotspot}
+                onSelectTargetHotspot={(hs) => {
+                  setTargetHotspot(hs);
+                  if (hs) setSelectedHotspot(hs);
+                }}
+                activeCityName={activeCityName}
+                parcelCount={thermalData ? thermalData.features.length : 420}
+                autoTriggerCount={auditTriggerCount}
+                onApplyRecommendationToSim={handleApplyAiPrescription}
+              />
+            )}
+          </div>
+        </aside>
+
+        {/* Right Area: Unobstructed 3D Map Canvas */}
+        <div className="flex-1 relative h-[54%] md:h-full overflow-hidden">
           <CoreMap
             className="w-full h-full"
             activeCityId={activeCityId}
@@ -381,211 +753,20 @@ export default function MapPage() {
             showOverlayControls={true}
             isCalculatingThermal={isCalculatingThermal}
             calculatingCityName={activeCityName}
+            focusedRefuge={focusedRefuge}
           />
 
-          {/* Top-Center: Geocoding City Search & Benchmark Switcher */}
-          <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-30 w-[94%] sm:w-auto sm:min-w-[520px] max-w-xl">
-            <CitySearch
-              activeCityId={activeCityId}
-              customCityName={
-                customLocation
-                  ? `${customLocation.name} · ${customLocation.state}`
-                  : null
-              }
-              onSelectPresetCity={handleSelectPresetCity}
-              onSelectCustomLocation={handleSelectCustomLocation}
-            />
-          </div>
-
-          {/* Left Floating Column: 3-Tab Mode Switcher (Layers | Simulate | AI Audit) */}
-          <div className="hidden lg:flex flex-col gap-2.5 absolute top-20 left-4 bottom-16 z-20 pointer-events-none">
-            {/* Double-Bezel 3-Tab Mode Switcher Bar */}
-            <div className="pointer-events-auto w-80 sm:w-[350px] bezel-shell shadow-xl shrink-0">
-              <div className="bezel-core bg-[#060809]/95 backdrop-blur-xl p-1 grid grid-cols-3 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setLeftTab("controls")}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-[12px] font-mono text-[10px] uppercase tracking-[0.11em] transition-all ${
-                    leftTab === "controls"
-                      ? "bg-[#10B981] text-[#060809] font-bold shadow-[0_0_16px_rgba(16,185,129,0.3)]"
-                      : "text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.04]"
-                  }`}
-                >
-                  <Layers className="w-3 h-3 stroke-[2]" />
-                  <span>Layers</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setLeftTab("simulate")}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-[12px] font-mono text-[10px] uppercase tracking-[0.11em] transition-all relative ${
-                    leftTab === "simulate"
-                      ? "bg-[#10B981] text-[#060809] font-bold shadow-[0_0_16px_rgba(16,185,129,0.3)]"
-                      : "text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.04]"
-                  }`}
-                >
-                  <SlidersHorizontal className="w-3 h-3 stroke-[2]" />
-                  <span>Simulate</span>
-                  {hasActiveInterventions && leftTab !== "simulate" && (
-                    <span className="w-2 h-2 rounded-full bg-[#10B981] animate-ping absolute top-1.5 right-1.5" />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setLeftTab("analyze")}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-[12px] font-mono text-[10px] uppercase tracking-[0.11em] transition-all ${
-                    leftTab === "analyze"
-                      ? "bg-[#10B981] text-[#060809] font-bold shadow-[0_0_16px_rgba(16,185,129,0.3)]"
-                      : "text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.04]"
-                  }`}
-                >
-                  <FileSpreadsheet className="w-3 h-3 stroke-[2]" />
-                  <span>AI Audit</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Active Left Panel Content */}
-            <div className="pointer-events-auto overflow-y-auto pr-0.5 flex flex-col gap-3">
-              {leftTab === "controls" && (
-                <>
-                  <MapControls
-                    showHeatmap={showHeatmap}
-                    onToggleHeatmap={setShowHeatmap}
-                    heatmapOpacity={heatmapOpacity}
-                    onChangeOpacity={setHeatmapOpacity}
-                    showHotspots={showHotspots}
-                    onToggleHotspots={setShowHotspots}
-                    show3DBuildings={show3DBuildings}
-                    onToggle3DBuildings={setShow3DBuildings}
-                    currentCoords={activeCenter}
-                    activeCityName={activeCityName}
-                  />
-
-                  {/* Sector Calibration Summary Pill */}
-                  <div className="w-72 sm:w-80 bezel-shell shadow-xl">
-                    <div className="bezel-core bg-[#060809]/95 backdrop-blur-xl p-3 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#10B981] flex items-center gap-1.5">
-                          {isCalculatingThermal ? (
-                            <>
-                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              Calculating Heated Zones...
-                            </>
-                          ) : (
-                            <>
-                              <Radio className="w-2.5 h-2.5" />
-                              Real OSM + Satellite LST
-                            </>
-                          )}
-                        </span>
-                        <span className="font-medium text-[#F4F6F7] truncate block max-w-[175px] mt-0.5">
-                          {activeCityName}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#526068] block">
-                          Mapped Parcels
-                        </span>
-                        <span className="font-mono text-xs font-semibold text-[#10B981] tabular-nums">
-                          {isCalculatingThermal
-                            ? "SYNCING"
-                            : `${
-                                thermalData ? thermalData.features.length : 0
-                              } ways`}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {leftTab === "simulate" && (
-                <SimulationPanel
-                  hotspots={hotspots}
-                  targetHotspot={effectiveTargetHotspot}
-                  onSelectTargetHotspot={(hs) => {
-                    setTargetHotspot(hs);
-                    if (hs) setSelectedHotspot(hs);
-                  }}
-                  config={simConfig}
-                  onChangeConfig={setSimConfig}
-                  simulationResult={simulationResult}
-                  isBaselinePreview={isBaselinePreview}
-                  onToggleBaselinePreview={setIsBaselinePreview}
-                  onResetSimulation={() => {
-                    setSimConfig(DEFAULT_INTERVENTION_CONFIG);
-                    setIsBaselinePreview(false);
-                  }}
-                  activeCityName={activeCityName}
-                />
-              )}
-
-              {leftTab === "analyze" && (
-                <AnalysisReport
-                  hotspots={hotspots}
-                  targetHotspot={effectiveTargetHotspot}
-                  onSelectTargetHotspot={(hs) => {
-                    setTargetHotspot(hs);
-                    if (hs) setSelectedHotspot(hs);
-                  }}
-                  activeCityName={activeCityName}
-                  parcelCount={thermalData ? thermalData.features.length : 420}
-                  autoTriggerCount={auditTriggerCount}
-                  onApplyRecommendationToSim={handleApplyAiPrescription}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Right Floating Column: Hotspot Ranking & Selected Hotspot Detail Card */}
-          <div className="hidden md:flex flex-col gap-3 absolute top-20 right-4 bottom-20 z-20 pointer-events-none overflow-y-auto items-end">
-            <div className="pointer-events-auto flex flex-col gap-3">
-              <HotspotMarkers
-                hotspots={hotspots}
-                selectedHotspot={selectedHotspot}
-                onSelectHotspot={handleSelectHotspot}
-                onSimulateHotspot={handleSimulateHotspot}
-                onAuditHotspot={handleAuditHotspot}
-              />
-            </div>
-          </div>
-
-          {/* Active Simulation Floating HUD Pill (Top-Center below CitySearch when interventions active) */}
-          {hasActiveInterventions && simulationResult && (
-            <div className="hidden sm:flex items-center gap-2.5 absolute top-[72px] left-1/2 -translate-x-1/2 z-20 px-3.5 py-1.5 rounded-full bg-[#060809]/90 border border-[#10B981]/40 backdrop-blur-md shadow-xl">
-              <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#F4F6F7]">
-                {isBaselinePreview
-                  ? "Viewing BEFORE (Baseline)"
-                  : `Cooling Active: ${simulationResult.temperatureDeltaF.toFixed(
-                      1
-                    )}°F (${simulationResult.temperatureDeltaC.toFixed(1)}°C)`}
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsBaselinePreview(!isBaselinePreview)}
-                className="px-2 py-0.5 rounded-full bg-[#10B981]/15 border border-[#10B981]/35 font-mono text-[9px] uppercase tracking-[0.12em] text-[#10B981] hover:bg-[#10B981]/25 transition-colors"
-              >
-                {isBaselinePreview ? "Show Cool Map" : "Compare Before"}
-              </button>
-            </div>
-          )}
-
-          {/* Simulation Trigger Notification Toast */}
+          {/* Simulation Notification Toast */}
           {simulationNotice && (
-            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-40 bezel-shell shadow-2xl animate-in fade-in slide-in-from-bottom-3">
-              <div className="bezel-core bg-[#060809]/95 backdrop-blur-xl px-4 py-2.5 flex items-center gap-2.5 border border-[#10B981]/40">
-                <CheckCircle2 className="w-4 h-4 text-[#10B981] shrink-0" />
-                <span className="font-mono text-xs text-[#F4F6F7]">
-                  {simulationNotice}
-                </span>
-              </div>
+            <div className="absolute bottom-16 left-4 z-30 rounded-xl bg-[#211F1C]/95 border border-[#5E9A7B]/50 px-4 py-2.5 shadow-xl flex items-center gap-2.5 max-w-md pointer-events-none">
+              <CheckCircle2 className="w-4 h-4 text-[#78B093] shrink-0" />
+              <span className="text-xs font-medium text-[#F5F3EF]">
+                {simulationNotice}
+              </span>
             </div>
           )}
 
-          {/* Phase 4: Slide-Out Streaming AI Chat Advisor Drawer (Groq LPU + Qwen 3.8 Vision) */}
+          {/* Slide-Out Streaming AI Chat Advisor Drawer */}
           <ChatAdvisor mapContext={liveMapContext} />
         </div>
       </div>
