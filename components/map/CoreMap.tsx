@@ -3,8 +3,9 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { Compass, RotateCcw } from "lucide-react";
+import { Compass, RotateCcw, Snowflake, Leaf, Flame } from "lucide-react";
 import {
+  ThermalFeature,
   ThermalFeatureCollection,
   loadCityThermalData,
   fetchLiveRealThermalData,
@@ -38,6 +39,10 @@ export interface CoreMapProps {
     center: [number, number];
     radiusMeters: number;
     active: boolean;
+    coolingDeltaF?: number;
+    baselinePeakTempF?: number;
+    projectedPeakTempF?: number;
+    zoneName?: string;
   } | null;
   onMapLoaded?: (map: mapboxgl.Map) => void;
   onCoordinatesChange?: (coords: {
@@ -51,6 +56,12 @@ export interface CoreMapProps {
   standaloneMode?: boolean;
   isCalculatingThermal?: boolean;
   calculatingCityName?: string;
+  focusedRefuge?: {
+    name: string;
+    temperatureF: number;
+    coolerByF: number;
+    coordinates: [number, number];
+  } | null;
 }
 
 const CALCULATION_STAGES = [
@@ -58,6 +69,162 @@ const CALCULATION_STAGES = [
   "Fetching Open-Meteo solar irradiance & wind telemetry...",
   "Computing 450m spatial energy balance & UHI hotspots...",
 ];
+
+type ThermalBand = "hot" | "warm" | "normal" | "cold";
+
+/**
+ * Determines the thermal band ("hot" | "warm" | "normal" | "cold") for a zone
+ * based on its actual temperature and cooling reduction:
+ * - "cold" (Blue): ONLY when actual temp <= 76°F OR cooling drop >= 10.0°F
+ * - "normal" (Green): Normal comfortable temperature (temp <= 88°F OR cooling drop 4.2°F - 9.9°F)
+ * - "warm" (Amber/Yellow): Partial cooling (cooling drop 1.5°F - 4.1°F)
+ * - "hot" (Orange/Red): Uncooled or minimal cooling (< 1.5°F)
+ */
+function getZoneThermalBand(
+  projectedTempF: number,
+  coolingMagnitudeF: number
+): ThermalBand {
+  if (projectedTempF <= 76.0 || coolingMagnitudeF >= 10.0) {
+    return "cold";
+  }
+  if (projectedTempF <= 88.0 || coolingMagnitudeF >= 4.2) {
+    return "normal";
+  }
+  if (coolingMagnitudeF >= 1.5) {
+    return "warm";
+  }
+  return "hot";
+}
+
+/**
+ * Returns the Mapbox 'heatmap-color' expression for the selected zone's cooling layer
+ * matching its current thermal band (Warm Amber -> Normal Green -> Cold Blue).
+ */
+function getCoolingLayerColorExpression(
+  band: ThermalBand
+): mapboxgl.ExpressionSpecification {
+  if (band === "cold") {
+    // Cold / Very Cool Temperature -> Sky Blue
+    return [
+      "interpolate",
+      ["linear"],
+      ["heatmap-density"],
+      0,
+      "rgba(23, 22, 20, 0)",
+      0.15,
+      "rgba(52, 211, 153, 0.35)",
+      0.4,
+      "rgba(45, 212, 191, 0.68)",
+      0.7,
+      "rgba(56, 189, 248, 0.88)",
+      1.0,
+      "rgba(96, 165, 250, 0.96)",
+    ];
+  }
+
+  if (band === "normal") {
+    // Normal Temperature -> Natural Botanical Green / Emerald (NO Blue)
+    return [
+      "interpolate",
+      ["linear"],
+      ["heatmap-density"],
+      0,
+      "rgba(23, 22, 20, 0)",
+      0.15,
+      "rgba(163, 230, 53, 0.30)",
+      0.4,
+      "rgba(74, 222, 128, 0.62)",
+      0.72,
+      "rgba(52, 211, 153, 0.84)",
+      1.0,
+      "rgba(16, 185, 129, 0.94)",
+    ];
+  }
+
+  // Warm Temperature -> Warm Amber / Yellow
+  return [
+    "interpolate",
+    ["linear"],
+    ["heatmap-density"],
+    0,
+    "rgba(23, 22, 20, 0)",
+    0.15,
+    "rgba(251, 146, 60, 0.28)",
+    0.45,
+    "rgba(250, 204, 21, 0.60)",
+    0.75,
+    "rgba(234, 179, 8, 0.80)",
+    1.0,
+    "rgba(163, 230, 53, 0.88)",
+  ];
+}
+
+/**
+ * Generates concentric radial microclimate nodes inside the selected zone
+ * so Mapbox's WebGL cooling-heatmap layer renders a smooth, high-visibility
+ * color transition across the entire selected radius as temperature cools down.
+ */
+function createCoolingFieldNodesGeoJSON(
+  center: [number, number],
+  radiusMeters: number,
+  coolingMagnitudeF: number
+) {
+  if (coolingMagnitudeF <= 0.1) {
+    return {
+      type: "FeatureCollection" as const,
+      features: [],
+    };
+  }
+
+  const [lng, lat] = center;
+  const earthRadius = 6371000;
+  const latRad = (lat * Math.PI) / 180;
+  const normalized = Math.min(1.25, coolingMagnitudeF / 6.0);
+
+  const rings = [
+    { fraction: 0, count: 1, weightFactor: 1.0 },
+    { fraction: 0.28, count: 6, weightFactor: 0.92 },
+    { fraction: 0.56, count: 12, weightFactor: 0.76 },
+    { fraction: 0.84, count: 18, weightFactor: 0.48 },
+  ];
+
+  const features: Array<{
+    type: "Feature";
+    geometry: { type: "Point"; coordinates: [number, number] };
+    properties: { coolingWeight: number; coolingF: number };
+  }> = [];
+
+  for (const ring of rings) {
+    const dist = radiusMeters * ring.fraction;
+    for (let i = 0; i < ring.count; i++) {
+      const angle = (i / ring.count) * 2 * Math.PI;
+      const dx = dist * Math.cos(angle);
+      const dy = dist * Math.sin(angle);
+      const dLat = (dy / earthRadius) * (180 / Math.PI);
+      const dLng = (dx / (earthRadius * Math.cos(latRad))) * (180 / Math.PI);
+
+      features.push({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [
+            Number((lng + dLng).toFixed(5)),
+            Number((lat + dLat).toFixed(5)),
+          ],
+        },
+        properties: {
+          coolingWeight: Number((normalized * ring.weightFactor).toFixed(3)),
+          coolingF: Number((coolingMagnitudeF * ring.weightFactor).toFixed(2)),
+        },
+      });
+    }
+  }
+
+  return {
+    type: "FeatureCollection" as const,
+    features,
+  };
+}
 
 export function CoreMap({
   initialCenter = DEFAULT_CENTER,
@@ -80,11 +247,16 @@ export function CoreMap({
   standaloneMode = false,
   isCalculatingThermal = false,
   calculatingCityName,
+  focusedRefuge = null,
 }: CoreMapProps) {
   const mapContainer = useRef<HTMLDivElement | null>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const popupRef = useRef<mapboxgl.Popup | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const renderedFeaturesRef = useRef<ThermalFeature[]>([]);
+  const renderedCoolingMagRef = useRef<number>(0);
+  const lastAppliedBandRef = useRef<ThermalBand>("normal");
 
   // Refs for callbacks & latest data to prevent map teardown on re-renders
   const onMapLoadedRef = useRef(onMapLoaded);
@@ -101,6 +273,9 @@ export function CoreMap({
   const [internalHotspots, setInternalHotspots] = useState<Hotspot[]>([]);
   const [internalCalculating, setInternalCalculating] = useState<boolean>(false);
   const [calcStageIndex, setCalcStageIndex] = useState<number>(0);
+  const [animatedCoolingF, setAnimatedCoolingF] = useState<number>(0);
+  const [isTransitioningCooling, setIsTransitioningCooling] =
+    useState<boolean>(false);
   const [coordinates, setCoordinates] = useState({
     lng: initialCenter[0],
     lat: initialCenter[1],
@@ -215,7 +390,7 @@ export function CoreMap({
             type: "fill-extrusion",
             minzoom: 11,
             paint: {
-              "fill-extrusion-color": "#10161A",
+              "fill-extrusion-color": "#1C1A17",
               "fill-extrusion-height": [
                 "interpolate",
                 ["linear"],
@@ -250,23 +425,35 @@ export function CoreMap({
         },
       });
 
-      // 3. GPU WebGL Thermal Heatmap Layer (Visible across all zoom levels up to Z16)
+      // 3. GeoJSON Source for Selected Zone Radial Cooling Field
+      mapInstance.addSource("cooling-field-source", {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: [],
+        },
+      });
+
+      // 4. GPU WebGL Thermal Heatmap Layer
+      // Cold (Blue) -> Normal (Green) -> Warm (Amber) -> Hot (Orange/Red)
       mapInstance.addLayer(
         {
           id: "thermal-heatmap",
           type: "heatmap",
           source: "thermal-source",
-          maxzoom: 16,
+          maxzoom: 17,
           paint: {
             "heatmap-weight": [
               "interpolate",
               ["linear"],
               ["get", "deltaF"],
               0,
-              0.15,
-              12,
-              0.6,
-              28,
+              0,
+              2.5,
+              0.04,
+              10,
+              0.45,
+              26,
               1.0,
             ],
             "heatmap-intensity": [
@@ -278,24 +465,24 @@ export function CoreMap({
               12,
               1.9,
               15,
-              3.0,
+              2.8,
             ],
             "heatmap-color": [
               "interpolate",
               ["linear"],
               ["heatmap-density"],
               0,
-              "rgba(6, 8, 9, 0)",
-              0.12,
-              "rgba(56, 189, 248, 0.38)", // Cool Sky Blue
-              0.3,
-              "rgba(52, 211, 153, 0.58)", // Bio-Emerald
+              "rgba(23, 22, 20, 0)",
+              0.1,
+              "rgba(56, 189, 248, 0.32)", // Cold / Cool Water & Park Sinks (Blue)
+              0.28,
+              "rgba(52, 211, 153, 0.58)", // Normal Comfortable Temp (Green)
               0.52,
-              "rgba(250, 204, 21, 0.78)", // Solar Amber
+              "rgba(250, 204, 21, 0.78)", // Warm Temp (Amber/Yellow)
               0.75,
-              "rgba(249, 115, 22, 0.88)", // Thermal Orange
+              "rgba(249, 115, 22, 0.88)", // Hot Temp (Orange)
               1.0,
-              "rgba(239, 68, 68, 0.96)", // Critical Crimson
+              "rgba(239, 68, 68, 0.96)", // Extreme Heat (Red)
             ],
             "heatmap-radius": [
               "interpolate",
@@ -306,7 +493,7 @@ export function CoreMap({
               12,
               38,
               15,
-              60,
+              64,
             ],
             "heatmap-opacity": 0.85,
           },
@@ -314,57 +501,154 @@ export function CoreMap({
         "3d-buildings"
       );
 
-      // 4. Street-Level Parcel Thermal Nodes (Visible from Z12.5+)
+      // 5. Dedicated GPU WebGL Selected Zone Microclimate Layer
+      // Color dynamically adapts to the zone's temperature band:
+      // Warm (Amber) -> Normal (Botanical Green) -> Cold (Blue ONLY when genuinely cold/max cooled)
+      mapInstance.addLayer(
+        {
+          id: "cooling-heatmap",
+          type: "heatmap",
+          source: "cooling-field-source",
+          maxzoom: 18,
+          paint: {
+            "heatmap-weight": [
+              "interpolate",
+              ["linear"],
+              ["get", "coolingWeight"],
+              0,
+              0,
+              0.2,
+              0.35,
+              0.6,
+              0.75,
+              1.0,
+              1.0,
+            ],
+            "heatmap-intensity": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              9,
+              1.2,
+              12,
+              1.8,
+              14,
+              2.4,
+              16,
+              3.0,
+            ],
+            "heatmap-color": getCoolingLayerColorExpression("normal"),
+            "heatmap-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              9,
+              26,
+              12,
+              48,
+              14,
+              74,
+              16,
+              105,
+            ],
+            "heatmap-opacity": 0.9,
+          },
+        },
+        "3d-buildings"
+      );
+
+      // 6. Street-Level Parcel Thermal Nodes (Visible from Z12+)
+      // Colored strictly by temperature/thermal state:
+      // Blue ONLY when cold (<=76°F or >=10°F cooling), Green for normal, Yellow for warm, Orange/Red for hot
       mapInstance.addLayer(
         {
           id: "thermal-points",
           type: "circle",
           source: "thermal-source",
-          minzoom: 12.5,
+          minzoom: 12,
           paint: {
             "circle-radius": [
               "interpolate",
               ["linear"],
               ["zoom"],
-              12.5,
-              3,
-              15,
-              6.5,
+              12,
+              [
+                "case",
+                [">", ["coalesce", ["get", "coolingF"], 0], 0.5],
+                5.5,
+                3,
+              ],
+              14.5,
+              [
+                "case",
+                [">", ["coalesce", ["get", "coolingF"], 0], 0.5],
+                9,
+                6,
+              ],
               17,
-              11,
+              [
+                "case",
+                [">", ["coalesce", ["get", "coolingF"], 0], 0.5],
+                14,
+                10,
+              ],
             ],
             "circle-color": [
-              "interpolate",
-              ["linear"],
-              ["get", "temperatureF"],
-              74,
+              "case",
+              // Cold temperature (<= 76°F or deep cooling >= 10°F) -> Blue
+              [
+                "any",
+                ["<=", ["get", "temperatureF"], 76],
+                [">=", ["coalesce", ["get", "coolingF"], 0], 10.0],
+              ],
               "#38BDF8",
-              84,
+              // Normal comfortable temperature (<= 86°F or moderate cooling 4.2°F - 9.9°F) -> Normal Green
+              [
+                "any",
+                ["<=", ["get", "temperatureF"], 86],
+                [">=", ["coalesce", ["get", "coolingF"], 0], 4.2],
+              ],
               "#34D399",
-              96,
+              // Warm temperature (<= 95°F or light cooling 1.5°F - 4.1°F) -> Warm Amber/Yellow
+              [
+                "any",
+                ["<=", ["get", "temperatureF"], 95],
+                [">=", ["coalesce", ["get", "coolingF"], 0], 1.5],
+              ],
               "#FACC15",
-              105,
+              // Hot temperature (<= 105°F) -> Orange
+              ["<=", ["get", "temperatureF"], 105],
               "#F97316",
-              115,
+              // Extreme heat (> 105°F) -> Red
               "#EF4444",
             ],
-            "circle-stroke-width": 1.2,
-            "circle-stroke-color": "#060809",
+            "circle-stroke-width": [
+              "case",
+              [">", ["coalesce", ["get", "coolingF"], 0], 0.6],
+              1.6,
+              1.1,
+            ],
+            "circle-stroke-color": [
+              "case",
+              [">", ["coalesce", ["get", "coolingF"], 0], 0.6],
+              "#F5F3EF",
+              "#171614",
+            ],
             "circle-opacity": [
               "interpolate",
               ["linear"],
               ["zoom"],
-              12.5,
-              0.25,
-              14,
-              0.85,
+              12,
+              0.4,
+              13.5,
+              0.9,
             ],
           },
         },
         labelLayerId
       );
 
-      // 5. GeoJSON Source & Layers for Bio-Emerald Cooling Simulation Radius Ring
+      // 7. GeoJSON Source & Layers for Selected Zone Boundary Ring
       mapInstance.addSource("simulation-zone-source", {
         type: "geojson",
         data: {
@@ -379,8 +663,8 @@ export function CoreMap({
           type: "fill",
           source: "simulation-zone-source",
           paint: {
-            "fill-color": "#10B981",
-            "fill-opacity": 0.11,
+            "fill-color": "#34D399",
+            "fill-opacity": 0.12,
           },
         },
         labelLayerId
@@ -392,10 +676,10 @@ export function CoreMap({
           type: "line",
           source: "simulation-zone-source",
           paint: {
-            "line-color": "#10B981",
-            "line-width": 2,
+            "line-color": "#34D399",
+            "line-width": 2.2,
             "line-dasharray": [2, 2],
-            "line-opacity": 0.85,
+            "line-opacity": 0.88,
           },
         },
         labelLayerId
@@ -410,28 +694,51 @@ export function CoreMap({
           number,
           number
         ];
+        const coolingVal = Number(props?.coolingF || 0);
+        const tempVal = Number(props?.temperatureF || 90);
+        const parcelBand = getZoneThermalBand(tempVal, coolingVal);
+        const accentHex =
+          parcelBand === "cold"
+            ? "#38BDF8"
+            : parcelBand === "normal"
+            ? "#34D399"
+            : parcelBand === "warm"
+            ? "#FACC15"
+            : "#D98A5B";
 
         if (popupRef.current) popupRef.current.remove();
         popupRef.current = new mapboxgl.Popup({
           closeButton: true,
           closeOnClick: true,
-          maxWidth: "280px",
+          maxWidth: "290px",
         })
           .setLngLat(coords)
           .setHTML(
             `<div style="font-family: var(--font-jakarta), sans-serif; padding: 2px;">
-              <div style="font-family: var(--font-jetbrains-mono), monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em; color: #10B981; margin-bottom: 4px;">
-                ${props?.severity || "HIGH"} THERMAL NODE • ${props?.censusTract || "OSM"}
+              <div style="font-family: var(--font-jetbrains-mono), monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: ${accentHex}; margin-bottom: 4px;">
+                ${
+                  coolingVal > 0.5
+                    ? `${parcelBand.toUpperCase()} TEMP (-${coolingVal.toFixed(
+                        1
+                      )}°F)`
+                    : `${props?.severity || "HIGH"} THERMAL NODE`
+                } • ${props?.censusTract || "OSM"}
               </div>
-              <div style="font-weight: 700; font-size: 13px; color: #F4F6F7; margin-bottom: 6px;">
+              <div style="font-weight: 700; font-size: 13px; color: #F5F3EF; margin-bottom: 6px;">
                 ${props?.areaName || "Urban Surface Parcel"}
               </div>
-              <div style="display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
-                <span style="font-family: var(--font-space-grotesk), sans-serif; font-size: 18px; font-weight: 700; color: #F4F6F7;">
-                  ${Number(props?.temperatureF).toFixed(1)}°F
+              <div style="display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid rgba(245,243,239,0.1); padding-top: 6px;">
+                <span style="font-family: var(--font-space-grotesk), sans-serif; font-size: 18px; font-weight: 700; color: #F5F3EF;">
+                  ${tempVal.toFixed(1)}°F
                 </span>
-                <span style="font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; color: #10B981;">
-                  +${Number(props?.deltaF).toFixed(1)}°F UHI
+                <span style="font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; color: ${accentHex};">
+                  ${
+                    coolingVal > 0.5
+                      ? `Was ${Number(
+                          props?.originalTempF || tempVal
+                        ).toFixed(1)}°F`
+                      : `+${Number(props?.deltaF).toFixed(1)}°F UHI`
+                  }
                 </span>
               </div>
             </div>`
@@ -472,31 +779,251 @@ export function CoreMap({
     resizeObserver.observe(mapContainer.current);
 
     return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       resizeObserver.disconnect();
       markersRef.current.forEach((m) => m.remove());
       if (popupRef.current) popupRef.current.remove();
       mapInstance.remove();
       map.current = null;
     };
-    // Empty dependency array ensures Mapbox WebGL instance is NEVER destroyed on state updates
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Push GeoJSON data into 'thermal-source' whenever data changes or map finishes loading
+  // Helper to update the cooling-heatmap and zone ring colors based on the current animated temperature band
+  const syncCoolingBandColors = useCallback(
+    (mapInstance: mapboxgl.Map, currentTempF: number, currentCoolingMag: number) => {
+      const band = getZoneThermalBand(currentTempF, currentCoolingMag);
+      if (
+        band !== lastAppliedBandRef.current &&
+        mapInstance.getLayer("cooling-heatmap")
+      ) {
+        lastAppliedBandRef.current = band;
+        mapInstance.setPaintProperty(
+          "cooling-heatmap",
+          "heatmap-color",
+          getCoolingLayerColorExpression(band)
+        );
+      }
+
+      const ringColor =
+        band === "cold"
+          ? "#38BDF8" // Cold -> Blue
+          : band === "normal"
+          ? "#34D399" // Normal -> Green
+          : band === "warm"
+          ? "#FACC15" // Warm -> Amber
+          : "#D98A5B"; // Hot -> Terracotta
+
+      if (mapInstance.getLayer("simulation-zone-fill")) {
+        mapInstance.setPaintProperty(
+          "simulation-zone-fill",
+          "fill-color",
+          ringColor
+        );
+        mapInstance.setPaintProperty(
+          "simulation-zone-fill",
+          "fill-opacity",
+          currentCoolingMag > 0.2 ? 0.13 : 0.07
+        );
+      }
+      if (mapInstance.getLayer("simulation-zone-outline")) {
+        mapInstance.setPaintProperty(
+          "simulation-zone-outline",
+          "line-color",
+          ringColor
+        );
+      }
+    },
+    []
+  );
+
+  // Smoothly animate heatmap & cooling zone color transition over 1,650ms whenever thermalData or cooling changes
   useEffect(() => {
     if (!map.current || !isLoaded || !activeData) return;
-    const source = map.current.getSource(
+    const mapInstance = map.current;
+    const thermalSource = mapInstance.getSource(
       "thermal-source"
     ) as mapboxgl.GeoJSONSource | undefined;
-    if (source) {
-      source.setData(activeData);
-    }
-  }, [activeData, isLoaded]);
+    const coolingFieldSource = mapInstance.getSource(
+      "cooling-field-source"
+    ) as mapboxgl.GeoJSONSource | undefined;
 
-  // Push Bio-Emerald geodesic circle into 'simulation-zone-source' when simulation is active
+    if (!thermalSource) return;
+
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+
+    const nextFeatures = activeData.features;
+    const prevFeatures = renderedFeaturesRef.current;
+
+    const targetCoolingMag =
+      simulationZone && simulationZone.active && simulationZone.coolingDeltaF
+        ? Math.abs(simulationZone.coolingDeltaF)
+        : 0;
+    const startCoolingMag = renderedCoolingMagRef.current;
+    const baselinePeak = simulationZone?.baselinePeakTempF || 104.0;
+
+    // Check if this is the same city dataset (matching feature count & first feature ID)
+    const isSameCityDataset =
+      prevFeatures.length === nextFeatures.length &&
+      prevFeatures.length > 0 &&
+      prevFeatures[0].properties.id === nextFeatures[0].properties.id;
+
+    // Check if any feature's temperature/cooling actually changed
+    const hasThermalChange =
+      isSameCityDataset &&
+      (Math.abs(targetCoolingMag - startCoolingMag) > 0.05 ||
+        nextFeatures.some(
+          (nf, idx) =>
+            Math.abs(
+              nf.properties.deltaF - prevFeatures[idx].properties.deltaF
+            ) > 0.05 ||
+            Math.abs(
+              (nf.properties.coolingF || 0) -
+                (prevFeatures[idx].properties.coolingF || 0)
+            ) > 0.05
+        ));
+
+    if (!isSameCityDataset || !hasThermalChange) {
+      thermalSource.setData(activeData);
+      renderedFeaturesRef.current = nextFeatures;
+      renderedCoolingMagRef.current = targetCoolingMag;
+      setAnimatedCoolingF(targetCoolingMag);
+      setIsTransitioningCooling(false);
+
+      syncCoolingBandColors(
+        mapInstance,
+        baselinePeak - targetCoolingMag,
+        targetCoolingMag
+      );
+
+      if (coolingFieldSource) {
+        if (simulationZone && simulationZone.active && targetCoolingMag > 0.1) {
+          coolingFieldSource.setData(
+            createCoolingFieldNodesGeoJSON(
+              simulationZone.center,
+              simulationZone.radiusMeters,
+              targetCoolingMag
+            )
+          );
+        } else {
+          coolingFieldSource.setData({
+            type: "FeatureCollection",
+            features: [],
+          });
+        }
+      }
+      return;
+    }
+
+    // Smoothly animate the heatmap color transition in the selected zone over 1,650ms
+    const DURATION_MS = 1650;
+    const startTime = performance.now();
+    setIsTransitioningCooling(true);
+
+    const stepAnimation = (now: number) => {
+      const elapsed = now - startTime;
+      const rawT = Math.min(1, elapsed / DURATION_MS);
+      // Smooth cubic ease-in-out
+      const easedT =
+        rawT < 0.5
+          ? 4 * rawT * rawT * rawT
+          : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
+
+      const currentCoolingMag =
+        startCoolingMag + (targetCoolingMag - startCoolingMag) * easedT;
+      renderedCoolingMagRef.current = currentCoolingMag;
+      setAnimatedCoolingF(Number(currentCoolingMag.toFixed(1)));
+
+      // Dynamically shift the zone's heatmap color through Hot -> Warm (Amber) -> Normal (Green) -> Cold (Blue)
+      syncCoolingBandColors(
+        mapInstance,
+        baselinePeak - currentCoolingMag,
+        currentCoolingMag
+      );
+
+      const interpolatedFeatures: ThermalFeature[] = nextFeatures.map(
+        (targetF, i) => {
+          const fromF = prevFeatures[i] || targetF;
+          const fromProps = fromF.properties;
+          const toProps = targetF.properties;
+
+          const fromDelta = fromProps.deltaF;
+          const toDelta = toProps.deltaF;
+          const fromTemp = fromProps.temperatureF;
+          const toTemp = toProps.temperatureF;
+          const fromCool = fromProps.coolingF || 0;
+          const toCool = toProps.coolingF || 0;
+
+          if (
+            Math.abs(toDelta - fromDelta) < 0.01 &&
+            Math.abs(toCool - fromCool) < 0.01
+          ) {
+            return targetF;
+          }
+
+          return {
+            ...targetF,
+            properties: {
+              ...toProps,
+              deltaF: Number(
+                (fromDelta + (toDelta - fromDelta) * easedT).toFixed(2)
+              ),
+              temperatureF: Number(
+                (fromTemp + (toTemp - fromTemp) * easedT).toFixed(1)
+              ),
+              coolingF: Number(
+                (fromCool + (toCool - fromCool) * easedT).toFixed(2)
+              ),
+            },
+          };
+        }
+      );
+
+      renderedFeaturesRef.current = interpolatedFeatures;
+      thermalSource.setData({
+        type: "FeatureCollection",
+        features: interpolatedFeatures,
+      });
+
+      if (coolingFieldSource && simulationZone && simulationZone.active) {
+        coolingFieldSource.setData(
+          createCoolingFieldNodesGeoJSON(
+            simulationZone.center,
+            simulationZone.radiusMeters,
+            currentCoolingMag
+          )
+        );
+      }
+
+      if (rawT < 1) {
+        animFrameRef.current = requestAnimationFrame(stepAnimation);
+      } else {
+        renderedFeaturesRef.current = nextFeatures;
+        renderedCoolingMagRef.current = targetCoolingMag;
+        setAnimatedCoolingF(Number(targetCoolingMag.toFixed(1)));
+        setIsTransitioningCooling(false);
+        animFrameRef.current = null;
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(stepAnimation);
+
+    return () => {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+    };
+  }, [activeData, simulationZone, isLoaded, syncCoolingBandColors]);
+
+  // Push geodesic circle into 'simulation-zone-source'
   useEffect(() => {
     if (!map.current || !isLoaded) return;
-    const source = map.current.getSource(
+    const mapInstance = map.current;
+    const source = mapInstance.getSource(
       "simulation-zone-source"
     ) as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
@@ -507,15 +1034,19 @@ export function CoreMap({
         simulationZone.radiusMeters
       );
       source.setData(circleGeoJSON);
+
+      const coolingMag = Math.abs(simulationZone.coolingDeltaF || 0);
+      const basePeak = simulationZone.baselinePeakTempF || 104.0;
+      syncCoolingBandColors(mapInstance, basePeak - coolingMag, coolingMag);
     } else {
       source.setData({
         type: "FeatureCollection",
         features: [],
       });
     }
-  }, [simulationZone, isLoaded]);
+  }, [simulationZone, isLoaded, syncCoolingBandColors]);
 
-  // Sync Heatmap visibility & opacity
+  // Sync Heatmap visibility & opacity across both thermal-heatmap and cooling-heatmap
   useEffect(() => {
     if (!map.current || !isLoaded) return;
     const mapInstance = map.current;
@@ -530,6 +1061,19 @@ export function CoreMap({
         "thermal-heatmap",
         "heatmap-opacity",
         heatmapOpacity
+      );
+    }
+
+    if (mapInstance.getLayer("cooling-heatmap")) {
+      mapInstance.setLayoutProperty(
+        "cooling-heatmap",
+        "visibility",
+        showHeatmap ? "visible" : "none"
+      );
+      mapInstance.setPaintProperty(
+        "cooling-heatmap",
+        "heatmap-opacity",
+        Math.min(1, heatmapOpacity + 0.05)
       );
     }
 
@@ -586,14 +1130,56 @@ export function CoreMap({
 
     map.current.flyTo({
       center: selectedHotspot.coordinates,
-      zoom: Math.max(map.current.getZoom(), 13.4),
-      pitch: 54,
-      duration: 1500,
+      zoom: Math.max(map.current.getZoom(), 13.2),
+      pitch: 52,
+      duration: 1300,
       essential: true,
     });
   }, [selectedHotspot, isLoaded]);
 
-  // Render pulsing tactical Mapbox DOM markers for top hotspots
+  // Fly to a Cool Refuge spot when user clicks "View" in the Personal Health & Safety panel
+  useEffect(() => {
+    if (!map.current || !isLoaded || !focusedRefuge) return;
+    const mapInstance = map.current;
+
+    mapInstance.flyTo({
+      center: focusedRefuge.coordinates,
+      zoom: Math.max(mapInstance.getZoom(), 13.6),
+      pitch: 52,
+      duration: 1400,
+      essential: true,
+    });
+
+    if (popupRef.current) popupRef.current.remove();
+    popupRef.current = new mapboxgl.Popup({
+      closeButton: true,
+      closeOnClick: true,
+      offset: 14,
+      maxWidth: "280px",
+    })
+      .setLngLat(focusedRefuge.coordinates)
+      .setHTML(
+        `<div style="font-family: var(--font-jakarta), sans-serif; padding: 2px;">
+          <div style="font-size: 11px; font-weight: 600; color: #34D399; margin-bottom: 4px;">
+            Cool Outdoor Refuge · Safe Zone
+          </div>
+          <div style="font-weight: 700; font-size: 14px; color: #F5F3EF; margin-bottom: 6px;">
+            ${focusedRefuge.name}
+          </div>
+          <div style="display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid rgba(245,243,239,0.1); padding-top: 6px;">
+            <span style="font-family: var(--font-space-grotesk), sans-serif; font-size: 18px; font-weight: 700; color: #34D399;">
+              ${focusedRefuge.temperatureF.toFixed(1)}°F
+            </span>
+            <span style="font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: #78B093;">
+              -${focusedRefuge.coolerByF.toFixed(1)}°F cooler
+            </span>
+          </div>
+        </div>`
+      )
+      .addTo(mapInstance);
+  }, [focusedRefuge, isLoaded]);
+
+  // Render Mapbox DOM markers for top hotspots (colored by thermal state: Warm Amber / Normal Green / Cold Blue)
   useEffect(() => {
     if (!map.current || !isLoaded) return;
     const mapInstance = map.current;
@@ -603,29 +1189,62 @@ export function CoreMap({
 
     if (!showHotspots || !activeHotspots || activeHotspots.length === 0) return;
 
+    const activeCoolingDelta =
+      simulationZone && simulationZone.active
+        ? simulationZone.coolingDeltaF || 0
+        : 0;
+    const coolingMag = Math.abs(activeCoolingDelta);
+
     activeHotspots.forEach((hotspot) => {
       const el = document.createElement("div");
       el.className =
         "group cursor-pointer relative flex items-center justify-center";
-      el.style.width = "38px";
-      el.style.height = "38px";
 
       const isCurrentSelected = selectedHotspot?.id === hotspot.id;
+      const isThisHotspotCooled =
+        isCurrentSelected && activeCoolingDelta < -0.2;
 
-      el.innerHTML = `
-        <div class="absolute inset-0 rounded-full ${
-          isCurrentSelected
-            ? "bg-[#10B981]/45 animate-ping"
-            : "bg-[#EF4444]/35 animate-pulse"
-        }"></div>
-        <div class="relative w-7 h-7 rounded-full flex items-center justify-center font-mono text-[10px] font-bold shadow-lg transition-transform transform group-hover:scale-110 border ${
-          isCurrentSelected
-            ? "bg-[#10B981] text-[#060809] border-white shadow-[0_0_18px_rgba(16,185,129,0.7)]"
-            : "bg-[#060809] text-[#F4F6F7] border-[#EF4444] shadow-[0_0_14px_rgba(239,68,68,0.6)]"
-        }">
-          #${hotspot.rank}
-        </div>
-      `;
+      if (isThisHotspotCooled) {
+        const cooledPeakNum = hotspot.peakTempF + activeCoolingDelta;
+        const cooledPeak = cooledPeakNum.toFixed(1);
+        const band = getZoneThermalBand(cooledPeakNum, coolingMag);
+
+        const badgeStyles =
+          band === "cold"
+            ? "bg-[#11222B] text-[#E0F2FE] border-[#38BDF8]"
+            : band === "normal"
+            ? "bg-[#16261E] text-[#ECFDF5] border-[#34D399]"
+            : "bg-[#262015] text-[#FEF9C3] border-[#FACC15]";
+
+        const accentText =
+          band === "cold"
+            ? "text-[#38BDF8]"
+            : band === "normal"
+            ? "text-[#34D399]"
+            : "text-[#FACC15]";
+
+        el.innerHTML = `
+          <div class="relative flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-mono text-xs font-bold shadow-lg border-2 ${badgeStyles} whitespace-nowrap transition-transform transform group-hover:scale-105">
+            <span>#${hotspot.rank}</span>
+            <span class="${accentText}">${cooledPeak}°F</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-black/25 ${accentText}">${activeCoolingDelta.toFixed(
+              1
+            )}°F</span>
+          </div>
+        `;
+      } else {
+        el.style.width = "38px";
+        el.style.height = "38px";
+        el.innerHTML = `
+          <div class="relative w-8 h-8 rounded-xl flex items-center justify-center font-mono text-xs font-bold shadow-md transition-transform transform group-hover:scale-105 border-2 ${
+            isCurrentSelected
+              ? "bg-[#5E9A7B] text-[#141311] border-[#F5F3EF]"
+              : "bg-[#211F1C] text-[#F5F3EF] border-[#D98A5B]"
+          }">
+            #${hotspot.rank}
+          </div>
+        `;
+      }
 
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -633,7 +1252,6 @@ export function CoreMap({
           onSelectHotspotRef.current(hotspot);
         }
 
-        // Also open a tactical popup directly over the marker
         if (popupRef.current) popupRef.current.remove();
         popupRef.current = new mapboxgl.Popup({
           closeButton: true,
@@ -644,21 +1262,21 @@ export function CoreMap({
           .setLngLat(hotspot.coordinates)
           .setHTML(
             `<div style="font-family: var(--font-jakarta), sans-serif; padding: 2px;">
-              <div style="font-family: var(--font-jetbrains-mono), monospace; font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em; color: #10B981; margin-bottom: 4px;">
-                HOTSPOT #${hotspot.rank} • ${hotspot.riskLevel.toUpperCase()} RISK
+              <div style="font-size: 11px; font-weight: 600; color: #78B093; margin-bottom: 4px;">
+                Hotspot #${hotspot.rank} · ${hotspot.riskLevel} Risk
               </div>
-              <div style="font-weight: 700; font-size: 13px; color: #F4F6F7; margin-bottom: 4px;">
+              <div style="font-weight: 700; font-size: 14px; color: #F5F3EF; margin-bottom: 4px;">
                 ${hotspot.name}
               </div>
-              <div style="font-size: 11px; color: #94A3AB; margin-bottom: 8px; line-height: 1.35;">
+              <div style="font-size: 12px; color: #B8B1A7; margin-bottom: 8px; line-height: 1.4;">
                 ${hotspot.primaryCause}
               </div>
-              <div style="display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
-                <span style="font-family: var(--font-space-grotesk), sans-serif; font-size: 18px; font-weight: 700; color: #F4F6F7;">
+              <div style="display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid rgba(245,243,239,0.1); padding-top: 6px;">
+                <span style="font-family: var(--font-space-grotesk), sans-serif; font-size: 18px; font-weight: 700; color: #F5F3EF;">
                   ${hotspot.peakTempF.toFixed(1)}°F
                 </span>
-                <span style="font-family: var(--font-jetbrains-mono), monospace; font-size: 11px; color: #10B981;">
-                  +${hotspot.deltaF.toFixed(1)}°F UHI
+                <span style="font-family: var(--font-jetbrains-mono), monospace; font-size: 12px; color: #D98A5B;">
+                  +${hotspot.deltaF.toFixed(1)}°F heat island
                 </span>
               </div>
             </div>`
@@ -672,7 +1290,13 @@ export function CoreMap({
 
       markersRef.current.push(marker);
     });
-  }, [activeHotspots, showHotspots, selectedHotspot, isLoaded]);
+  }, [
+    activeHotspots,
+    showHotspots,
+    selectedHotspot,
+    simulationZone,
+    isLoaded,
+  ]);
 
   const handleResetCamera = useCallback(() => {
     if (!map.current) return;
@@ -691,99 +1315,198 @@ export function CoreMap({
   const currentMeta =
     SUPPORTED_CITIES[activeCityId] || SUPPORTED_CITIES.portland;
 
+  const hasActiveCoolingOverlay =
+    simulationZone &&
+    simulationZone.active &&
+    (animatedCoolingF > 0.1 || (simulationZone.coolingDeltaF || 0) < -0.1);
+
+  const liveBaselinePeak = simulationZone?.baselinePeakTempF || 106.4;
+  const liveAnimatedTempNum = liveBaselinePeak - animatedCoolingF;
+  const liveAnimatedTempF = liveAnimatedTempNum.toFixed(1);
+  const currentBand = getZoneThermalBand(liveAnimatedTempNum, animatedCoolingF);
+
+  const bandTheme =
+    currentBand === "cold"
+      ? {
+          label: "Cold / Cool Temperature",
+          border: "border-[#38BDF8]/40",
+          accentText: "text-[#38BDF8]",
+          badgeBg: "bg-[#38BDF8]/15 border-[#38BDF8]/30 text-[#38BDF8]",
+          barColor: "from-[#EF4444] via-[#34D399] to-[#38BDF8]",
+        }
+      : currentBand === "normal"
+      ? {
+          label: "Normal Comfortable Temp",
+          border: "border-[#34D399]/40",
+          accentText: "text-[#34D399]",
+          badgeBg: "bg-[#34D399]/15 border-[#34D399]/30 text-[#34D399]",
+          barColor: "from-[#EF4444] via-[#FACC15] to-[#34D399]",
+        }
+      : {
+          label: "Warm Temperature",
+          border: "border-[#FACC15]/40",
+          accentText: "text-[#FACC15]",
+          badgeBg: "bg-[#FACC15]/15 border-[#FACC15]/30 text-[#FACC15]",
+          barColor: "from-[#EF4444] to-[#FACC15]",
+        };
+
+  const targetCoolingMag = Math.abs(simulationZone?.coolingDeltaF || 0);
+  const coolingProgressPct =
+    targetCoolingMag > 0.1
+      ? Math.min(100, Math.round((animatedCoolingF / targetCoolingMag) * 100))
+      : 0;
+
   return (
-    <div className={`relative overflow-hidden bg-[#060809] ${className}`}>
+    <div className={`relative overflow-hidden bg-[#171614] ${className}`}>
       {/* Mapbox WebGL Canvas */}
       <div ref={mapContainer} className="w-full h-full" />
 
+      {/* Live Selected Zone Cooling Transition HUD (Top-Left of Map Canvas) */}
+      {hasActiveCoolingOverlay && (
+        <div className="absolute top-4 left-4 z-20 pointer-events-none max-w-sm">
+          <div
+            className={`rounded-2xl bg-[#1C1A17]/95 border ${bandTheme.border} px-4 py-3 shadow-2xl space-y-2 backdrop-blur-md transition-colors duration-300`}
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                {currentBand === "cold" ? (
+                  <Snowflake
+                    className={`w-4 h-4 text-[#38BDF8] ${
+                      isTransitioningCooling ? "animate-spin" : ""
+                    }`}
+                  />
+                ) : currentBand === "normal" ? (
+                  <Leaf className="w-4 h-4 text-[#34D399]" />
+                ) : (
+                  <Flame className="w-4 h-4 text-[#FACC15]" />
+                )}
+                <span className="text-xs font-semibold text-[#F5F3EF]">
+                  {isTransitioningCooling
+                    ? "Cooling Selected Zone..."
+                    : bandTheme.label}
+                </span>
+              </div>
+              <span
+                className={`font-mono text-xs font-bold border px-2 py-0.5 rounded-md tabular-nums ${bandTheme.badgeBg}`}
+              >
+                -{animatedCoolingF.toFixed(1)}°F
+              </span>
+            </div>
+
+            {simulationZone?.zoneName && (
+              <div className="text-xs text-[#B8B1A7] truncate">
+                Zone:{" "}
+                <span className="text-[#F5F3EF] font-medium">
+                  {simulationZone.zoneName}
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between text-xs font-mono pt-0.5">
+              <span className="text-[#D98A5B] line-through tabular-nums">
+                {liveBaselinePeak.toFixed(1)}°F Hot
+              </span>
+              <span className="text-[#8C857B]">→</span>
+              <span
+                className={`text-sm font-bold tabular-nums ${bandTheme.accentText}`}
+              >
+                {liveAnimatedTempF}°F (
+                {currentBand === "cold"
+                  ? "Cold"
+                  : currentBand === "normal"
+                  ? "Normal"
+                  : "Warm"}
+                )
+              </span>
+            </div>
+
+            {/* Smooth Color Spectrum Progress Bar */}
+            <div className="w-full h-2 rounded-full bg-[#141311] overflow-hidden p-0.5 border border-[#2F2C28]">
+              <div
+                className={`h-full rounded-full transition-all duration-150 bg-gradient-to-r ${bandTheme.barColor}`}
+                style={{ width: `${Math.max(12, coolingProgressPct)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Loading Canvas Shield */}
       {!isLoaded && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#060809]">
-          <div className="w-48 h-[2px] bg-white/[0.06] rounded-full overflow-hidden mb-4">
-            <div className="w-1/2 h-full bg-[#10B981] animate-pulse rounded-full" />
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#171614]">
+          <div className="w-48 h-1.5 bg-[#2A2724] rounded-full overflow-hidden mb-3">
+            <div className="w-1/2 h-full bg-[#5E9A7B] animate-pulse rounded-full" />
           </div>
-          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#94A3AB]">
-            Calibrating WebGL Thermal Surface
+          <span className="text-xs font-medium text-[#B8B1A7]">
+            Loading 3D Thermal Map...
           </span>
         </div>
       )}
 
-      {/* Tactical Heated-Zone Calculation Overlay (while querying OSM Overpass + Open-Meteo + Physics) */}
+      {/* Heated-Zone Calculation Overlay (while querying OSM Overpass + Open-Meteo + Physics) */}
       {showCalculationOverlay && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#060809]/55 backdrop-blur-[3px] pointer-events-none transition-opacity duration-300">
-          <div className="w-[90%] max-w-md bezel-shell shadow-[0_25px_70px_rgba(0,0,0,0.85)]">
-            <div className="bezel-core bg-[#060809]/95 backdrop-blur-xl p-5 border border-[#10B981]/35 flex flex-col gap-3.5">
-              {/* Top Status Badge */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#10B981]" />
-                  </span>
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[#10B981]">
-                    Thermal Physics Engine Active
-                  </span>
-                </div>
-                <span className="font-mono text-[10px] text-[#94A3AB] tabular-nums">
-                  STEP 0{calcStageIndex + 1} / 03
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#171614]/65 backdrop-blur-sm pointer-events-none transition-opacity duration-300">
+          <div className="w-[90%] max-w-md rounded-2xl bg-[#211F1C] border border-[#38342F] p-5 shadow-2xl flex flex-col gap-3.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-[#78B093]">
+                Calculating Urban Heat Zones
+              </span>
+              <span className="font-mono text-[#B8B1A7] tabular-nums">
+                Step {calcStageIndex + 1} of 3
+              </span>
+            </div>
+
+            <div>
+              <h4 className="font-display text-base font-semibold text-[#F5F3EF]">
+                Mapping{" "}
+                <span className="text-[#78B093]">
+                  {calculatingCityName ||
+                    (customLocation
+                      ? `${customLocation.name}, ${customLocation.state}`
+                      : `${currentMeta.name}, ${currentMeta.state}`)}
                 </span>
-              </div>
+              </h4>
+              <p className="text-xs text-[#B8B1A7] mt-0.5">
+                Analyzing OpenStreetMap buildings, asphalt surfaces, and live solar heat...
+              </p>
+            </div>
 
-              {/* Target Sector Title */}
-              <div>
-                <h4 className="font-display text-base font-bold text-[#F4F6F7] tracking-tight">
-                  Calculating Heated Zones —{" "}
-                  <span className="text-[#10B981]">
-                    {calculatingCityName ||
-                      (customLocation
-                        ? `${customLocation.name}, ${customLocation.state}`
-                        : `${currentMeta.name}, ${currentMeta.state}`)}
-                  </span>
-                </h4>
-                <p className="text-xs text-[#94A3AB] mt-0.5">
-                  Mapping impervious surfaces, solar absorption, and 450m neighbor heat trapping...
-                </p>
-              </div>
+            <div className="w-full h-2 bg-[#141311] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#5E9A7B] rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width:
+                    calcStageIndex === 0
+                      ? "36%"
+                      : calcStageIndex === 1
+                      ? "72%"
+                      : "94%",
+                }}
+              />
+            </div>
 
-              {/* Progress Bar */}
-              <div className="w-full h-1.5 bg-white/[0.07] rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[#10B981] rounded-full transition-all duration-500 ease-out shadow-[0_0_12px_rgba(16,185,129,0.7)]"
-                  style={{
-                    width:
-                      calcStageIndex === 0
-                        ? "36%"
-                        : calcStageIndex === 1
-                        ? "72%"
-                        : "94%",
-                  }}
-                />
-              </div>
-
-              {/* Live Telemetry Step Log */}
-              <div className="space-y-1.5 pt-1 border-t border-white/[0.06] font-mono text-[11px]">
-                {CALCULATION_STAGES.map((stageText, idx) => {
-                  const isDone = idx < calcStageIndex;
-                  const isCurrent = idx === calcStageIndex;
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex items-center gap-2 transition-colors ${
-                        isCurrent
-                          ? "text-[#F4F6F7]"
-                          : isDone
-                          ? "text-[#10B981]"
-                          : "text-[#526068]"
-                      }`}
-                    >
-                      <span className="text-[10px] tabular-nums">
-                        {isDone ? "[✓]" : isCurrent ? "[►]" : "[·]"}
-                      </span>
-                      <span className="truncate">{stageText}</span>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="space-y-1.5 pt-2 border-t border-[#2F2C28] text-xs">
+              {CALCULATION_STAGES.map((stageText, idx) => {
+                const isDone = idx < calcStageIndex;
+                const isCurrent = idx === calcStageIndex;
+                return (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-2 ${
+                      isCurrent
+                        ? "text-[#F5F3EF] font-medium"
+                        : isDone
+                        ? "text-[#78B093]"
+                        : "text-[#8C857B]"
+                    }`}
+                  >
+                    <span className="font-mono text-xs">
+                      {isDone ? "✓" : isCurrent ? "→" : "·"}
+                    </span>
+                    <span className="truncate">{stageText}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -791,7 +1514,7 @@ export function CoreMap({
 
       {/* Standalone Top-Left City Preset Switcher (for Landing Page Hero Map) */}
       {showOverlayControls && isStandalone && (
-        <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-1.5 p-1 rounded-full bg-[#0B0F12]/90 border border-white/[0.08] backdrop-blur-md shadow-2xl">
+        <div className="absolute top-3.5 left-3.5 z-10 flex flex-wrap items-center gap-1.5 p-1.5 rounded-xl bg-[#211F1C]/95 border border-[#38342F] shadow-lg">
           {Object.values(SUPPORTED_CITIES).map((city) => {
             const isSelected = activeCityId === city.id;
             return (
@@ -799,80 +1522,57 @@ export function CoreMap({
                 key={city.id}
                 type="button"
                 onClick={() => setInternalCityId(city.id)}
-                className={`px-3 py-1 rounded-full font-mono text-[11px] transition-all duration-300 whitespace-nowrap ${
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
                   isSelected
-                    ? "bg-[#10B981] text-[#060809] font-semibold shadow-[0_0_16px_rgba(16,185,129,0.3)]"
-                    : "text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.04]"
+                    ? "bg-[#5E9A7B] text-[#141311] font-semibold"
+                    : "text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.04]"
                 }`}
               >
                 {city.id === "portland"
-                  ? "Portland · OR"
+                  ? "Portland, OR"
                   : city.id === "phoenix"
-                  ? "Phoenix · AZ"
-                  : "NYC · NY"}
+                  ? "Phoenix, AZ"
+                  : "New York, NY"}
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Bottom Legend Bar & Camera Reset (Non-Overlapping) */}
+      {showOverlayControls && (
+        <div className="absolute bottom-4 left-4 z-10 flex flex-wrap items-center gap-2.5 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 px-3.5 py-2 rounded-xl bg-[#211F1C]/95 border border-[#38342F] shadow-lg">
+            <span className="text-xs font-medium text-[#B8B1A7]">
+              Temp Scale
+            </span>
+            <div className="flex items-center gap-2 text-[11px] font-medium">
+              <span className="text-[#38BDF8]">Cold</span>
+              <span className="text-[#8C857B]">·</span>
+              <span className="text-[#34D399]">Normal</span>
+              <div className="h-2 w-24 sm:w-32 rounded-full bg-gradient-to-r from-[#38BDF8] via-[#34D399] via-[#FACC15] to-[#EF4444]" />
+              <span className="text-[#EF4444]">Hot ({currentMeta.peakSurfaceF})</span>
+            </div>
+          </div>
+
           <button
             type="button"
             onClick={handleResetCamera}
             title="Reset 3D Camera View"
             aria-label="Reset 3D Camera View"
-            className="p-1.5 rounded-full text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.06] transition-colors"
+            className="pointer-events-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#211F1C]/95 hover:bg-[#2A2724] border border-[#38342F] text-xs font-medium text-[#B8B1A7] hover:text-[#F5F3EF] transition-colors shadow-lg"
           >
-            <RotateCcw className="w-3.5 h-3.5 stroke-[1.75]" />
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Reset View</span>
           </button>
-        </div>
-      )}
 
-      {/* HUD Overlays */}
-      {showOverlayControls && (
-        <>
-          {/* Top-Right Quick Reset (on /map) */}
-          {!isStandalone && (
-            <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleResetCamera}
-                title="Reset 3D Camera View"
-                aria-label="Reset 3D Camera View"
-                className="p-2 rounded-full bg-[#060809]/90 border border-white/[0.08] text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.06] transition-colors backdrop-blur-md shadow-xl"
-              >
-                <RotateCcw className="w-3.5 h-3.5 stroke-[1.75]" />
-              </button>
-            </div>
-          )}
-
-          {/* Bottom Calibration Scale & Geodetics */}
-          <div className="absolute bottom-4 left-4 right-14 z-10 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
-            <div className="pointer-events-auto flex items-center gap-3 px-3.5 py-2 rounded-full bg-[#060809]/90 border border-white/[0.08] backdrop-blur-md shadow-xl">
-              <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-[#94A3AB]">
-                LST Scale
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-[#94A3AB] tabular-nums">
-                  68°F
-                </span>
-                <div className="h-1.5 w-28 sm:w-36 rounded-full bg-gradient-to-r from-sky-500 via-[#34D399] via-amber-400 to-rose-600 opacity-90" />
-                <span className="font-mono text-[10px] text-[#F4F6F7] tabular-nums">
-                  {currentMeta.peakSurfaceF}
-                </span>
-              </div>
-            </div>
-
-            <div className="pointer-events-auto hidden md:flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-[#060809]/90 border border-white/[0.08] backdrop-blur-md font-mono text-[11px] text-[#94A3AB] tabular-nums">
-              <Compass className="w-3.5 h-3.5 text-[#10B981] stroke-[1.75]" />
-              <span>
-                {coordinates.lat.toFixed(4)}°N,{" "}
-                {Math.abs(coordinates.lng).toFixed(4)}°W
-              </span>
-              <span className="text-white/[0.15]">/</span>
-              <span>Z {coordinates.zoom}</span>
-              <span className="text-white/[0.15]">/</span>
-              <span>{coordinates.pitch}° Tilt</span>
-            </div>
+          <div className="pointer-events-auto hidden xl:flex items-center gap-2 px-3 py-2 rounded-xl bg-[#211F1C]/95 border border-[#38342F] font-mono text-xs text-[#B8B1A7] tabular-nums shadow-lg">
+            <Compass className="w-3.5 h-3.5 text-[#78B093]" />
+            <span>
+              {coordinates.lat.toFixed(3)}°N, {Math.abs(coordinates.lng).toFixed(3)}°W
+            </span>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

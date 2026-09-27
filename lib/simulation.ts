@@ -182,14 +182,14 @@ export function runCoolingSimulation(
   let projectedSumF = 0;
   let affectedParcelCount = 0;
 
-  const sigma = effectiveRadius * 0.68;
+  const sigma = effectiveRadius * 0.75;
 
   const modifiedFeatures: ThermalFeature[] = baseData.features.map((f) => {
     const coords = f.geometry.coordinates;
     const props = f.properties;
     const dist = haversineDistanceMeters(targetCoords, coords);
 
-    if (sectorWide || dist <= effectiveRadius * 1.25) {
+    if (sectorWide || dist <= effectiveRadius * 1.35) {
       affectedParcelCount++;
       baselineSumF += props.temperatureF;
       if (props.temperatureF > baselinePeakTempF) {
@@ -201,23 +201,31 @@ export function runCoolingSimulation(
         if (props.temperatureF > projectedPeakTempF) {
           projectedPeakTempF = props.temperatureF;
         }
-        return f;
+        return {
+          ...f,
+          properties: {
+            ...props,
+            coolingF: 0,
+            originalTempF: props.temperatureF,
+            originalDeltaF: props.deltaF,
+          },
+        };
       }
 
       // Spatial Gaussian decay from target center (or uniform if sectorWide)
       const spatialWeight = sectorWide
-        ? 0.88
+        ? 0.9
         : Math.exp(-(dist * dist) / (2 * sigma * sigma));
 
       // Surface-specific receptivity:
       // Cool roofs strongly cool commercial_roof & asphalt; trees strongly cool asphalt & residential
       let surfaceMultiplier = 1.0;
       if (props.surfaceType === "commercial_roof") {
-        surfaceMultiplier = 1.15;
+        surfaceMultiplier = 1.18;
       } else if (props.surfaceType === "asphalt") {
-        surfaceMultiplier = 1.08;
+        surfaceMultiplier = 1.12;
       } else if (props.surfaceType === "canopy" || props.surfaceType === "water") {
-        surfaceMultiplier = 0.25; // Already near baseline cool sink
+        surfaceMultiplier = 0.35; // Already near baseline cool sink
       }
 
       const localCoolingF =
@@ -225,20 +233,19 @@ export function runCoolingSimulation(
 
       // Physical surface temperature after cooling
       const physicalDeltaF = Number(
-        Math.max(0.8, props.deltaF - localCoolingF).toFixed(1)
+        Math.max(0.4, props.deltaF - localCoolingF).toFixed(1)
       );
       const newTempF = Number(
         (props.baselineRuralF + physicalDeltaF).toFixed(1)
       );
       const newTempC = Number(((newTempF - 32) * (5 / 9)).toFixed(1));
 
-      // Attenuate WebGL kernel density weight inside treated zone so clustered points visibly transition from Crimson -> Emerald/Cyan
-      const clusterAttenuation = Math.max(
-        0.08,
-        1 - (localCoolingF / 15.5) * 0.88
-      );
+      // Strongly attenuate WebGL red heat kernel weight inside the cooled zone
+      // so the red/orange hotspot visibly dissolves and turns into a cool green/cyan oasis
+      const coolingRatio = Math.min(1, localCoolingF / 5.2);
+      const clusterAttenuation = Math.pow(Math.max(0, 1 - coolingRatio), 2.6);
       const visualDeltaF = Number(
-        Math.max(0.8, physicalDeltaF * clusterAttenuation).toFixed(1)
+        Math.max(0, physicalDeltaF * clusterAttenuation).toFixed(2)
       );
 
       let newSeverity: ThermalPointProperties["severity"] = "Low";
@@ -259,11 +266,22 @@ export function runCoolingSimulation(
           temperatureC: newTempC,
           deltaF: visualDeltaF,
           severity: newSeverity,
+          coolingF: Number(localCoolingF.toFixed(2)),
+          originalTempF: props.temperatureF,
+          originalDeltaF: props.deltaF,
         },
       };
     }
 
-    return f;
+    return {
+      ...f,
+      properties: {
+        ...props,
+        coolingF: 0,
+        originalTempF: props.temperatureF,
+        originalDeltaF: props.deltaF,
+      },
+    };
   });
 
   // Fallback if no points fell strictly inside small radius

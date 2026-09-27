@@ -8,6 +8,9 @@ export interface ThermalPointProperties {
   surfaceType: "asphalt" | "commercial_roof" | "residential" | "canopy" | "water";
   areaName: string;
   censusTract?: string;
+  coolingF?: number;           // Active simulated cooling drop in °F (0 at baseline)
+  originalTempF?: number;      // Baseline temperature in °F before simulation
+  originalDeltaF?: number;     // Baseline UHI delta in °F before simulation
 }
 
 export interface ThermalFeature {
