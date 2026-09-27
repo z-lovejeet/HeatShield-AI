@@ -23,121 +23,113 @@ export function ImpactMetrics({
   const hasCooling = result.temperatureDeltaF < 0;
 
   return (
-    <div className="flex flex-col gap-2.5 pt-2 border-t border-white/[0.06]">
+    <div className="flex flex-col gap-3 pt-3 border-t border-[#2F2C28]">
       {/* Before / After Temperature Telemetry Card */}
-      <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] flex flex-col gap-2">
+      <div className="p-3.5 rounded-xl bg-[#1A1816] border border-[#33302B] flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#94A3AB] flex items-center gap-1.5">
-            <TrendingDown className="w-3 h-3 text-[#10B981]" />
-            Before / After Surface Thermal Delta
+          <span className="text-xs font-medium text-[#B8B1A7] flex items-center gap-1.5">
+            <TrendingDown className="w-4 h-4 text-[#78B093]" />
+            Before vs. After Temperature
           </span>
           {hasCooling && (
-            <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/35 tabular-nums">
+            <span className="font-mono text-xs font-semibold px-2.5 py-0.5 rounded-lg bg-[#5E9A7B]/20 text-[#94C4AB] border border-[#5E9A7B]/35 tabular-nums">
               {result.temperatureDeltaF.toFixed(1)}°F ({result.temperatureDeltaC.toFixed(1)}°C)
             </span>
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 pt-0.5">
+        <div className="flex items-center justify-between gap-2 pt-1">
           <div>
-            <span className="font-mono text-[9px] uppercase tracking-wider text-[#526068] block">
-              Unmitigated Peak
+            <span className="text-xs text-[#8C857B] block">
+              Current Peak
             </span>
             <span
-              className={`font-display text-lg font-bold tabular-nums ${
+              className={`font-display text-xl font-bold tabular-nums ${
                 isBaselinePreview
-                  ? "text-[#F4F6F7]"
-                  : "text-[#94A3AB] line-through decoration-white/30"
+                  ? "text-[#F5F3EF]"
+                  : "text-[#8C857B] line-through"
               }`}
             >
               {result.baselinePeakTempF.toFixed(1)}°F
             </span>
           </div>
 
-          <ArrowRight className="w-4 h-4 text-[#10B981] shrink-0" />
+          <ArrowRight className="w-4 h-4 text-[#78B093] shrink-0" />
 
           <div className="text-right">
-            <span className="font-mono text-[9px] uppercase tracking-wider text-[#10B981] block">
-              Simulated Peak
+            <span className="text-xs text-[#78B093] block">
+              Cooled Peak
             </span>
-            <span className="font-display text-xl font-bold text-[#10B981] tabular-nums">
+            <span className="font-display text-2xl font-bold text-[#78B093] tabular-nums">
               {result.projectedPeakTempF.toFixed(1)}°F
             </span>
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-[10px] font-mono text-[#94A3AB] pt-1.5 border-t border-white/[0.05] tabular-nums">
+        <div className="flex items-center justify-between text-xs text-[#B8B1A7] pt-2 border-t border-[#2C2925] tabular-nums">
           <span>
-            Zone Mean: {result.baselineMeanTempF}°F →{" "}
-            <strong className="text-[#F4F6F7]">{result.projectedMeanTempF}°F</strong>
+            Avg: {result.baselineMeanTempF}°F →{" "}
+            <strong className="text-[#F5F3EF]">{result.projectedMeanTempF}°F</strong>
           </span>
-          <span>{result.affectedParcelCount} OSM parcels cooled</span>
+          <span>{result.affectedParcelCount} parcels cooled</span>
         </div>
       </div>
 
       {/* 4-Cell Environmental & Municipal ROI Grid */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2.5">
         {/* 1. Capital Cost */}
-        <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-          <div className="flex items-center justify-between text-[#94A3AB] mb-1">
-            <span className="font-mono text-[9px] uppercase tracking-wider">
-              Est. Capital Cost
-            </span>
-            <DollarSign className="w-3 h-3 text-[#10B981]" />
+        <div className="p-3 rounded-xl bg-[#1A1816] border border-[#2E2B27]">
+          <div className="flex items-center justify-between text-[#B8B1A7] mb-1">
+            <span className="text-xs">Estimated Cost</span>
+            <DollarSign className="w-3.5 h-3.5 text-[#78B093]" />
           </div>
-          <span className="font-display text-sm font-bold text-[#F4F6F7] tabular-nums block">
+          <span className="font-display text-base font-bold text-[#F5F3EF] tabular-nums block">
             ${result.estimatedCostUSD.toLocaleString()}
           </span>
-          <span className="font-mono text-[9px] text-[#526068] tabular-nums">
-            {(result.affectedAreaSqMeters / 4046.86).toFixed(0)} acres treated
+          <span className="text-[11px] text-[#8C857B] tabular-nums">
+            {(result.affectedAreaSqMeters / 4046.86).toFixed(0)} acres covered
           </span>
         </div>
 
         {/* 2. Annual CO2 Offset */}
-        <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-          <div className="flex items-center justify-between text-[#94A3AB] mb-1">
-            <span className="font-mono text-[9px] uppercase tracking-wider">
-              CO₂ Offset / Yr
-            </span>
-            <Leaf className="w-3 h-3 text-[#10B981]" />
+        <div className="p-3 rounded-xl bg-[#1A1816] border border-[#2E2B27]">
+          <div className="flex items-center justify-between text-[#B8B1A7] mb-1">
+            <span className="text-xs">CO₂ Offset / Yr</span>
+            <Leaf className="w-3.5 h-3.5 text-[#78B093]" />
           </div>
-          <span className="font-display text-sm font-bold text-[#10B981] tabular-nums block">
-            {result.annualCo2OffsetMetricTons.toFixed(1)} t/yr
+          <span className="font-display text-base font-bold text-[#78B093] tabular-nums block">
+            {result.annualCo2OffsetMetricTons.toFixed(1)} tons/yr
           </span>
-          <span className="font-mono text-[9px] text-[#526068]">
-            i-Tree + Grid Avoided
+          <span className="text-[11px] text-[#8C857B]">
+            Trees + grid savings
           </span>
         </div>
 
         {/* 3. Peak HVAC Energy Saved */}
-        <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-          <div className="flex items-center justify-between text-[#94A3AB] mb-1">
-            <span className="font-mono text-[9px] uppercase tracking-wider">
-              HVAC Saved / Yr
-            </span>
-            <Zap className="w-3 h-3 text-[#10B981]" />
+        <div className="p-3 rounded-xl bg-[#1A1816] border border-[#2E2B27]">
+          <div className="flex items-center justify-between text-[#B8B1A7] mb-1">
+            <span className="text-xs">Energy Saved</span>
+            <Zap className="w-3.5 h-3.5 text-[#78B093]" />
           </div>
-          <span className="font-display text-sm font-bold text-[#F4F6F7] tabular-nums block">
-            {result.annualEnergySavedMwh.toFixed(1)} MWh
+          <span className="font-display text-base font-bold text-[#F5F3EF] tabular-nums block">
+            {result.annualEnergySavedMwh.toFixed(1)} MWh/yr
           </span>
-          <span className="font-mono text-[9px] text-[#526068]">
-            Peak AC load reduction
+          <span className="text-[11px] text-[#8C857B]">
+            Less AC grid demand
           </span>
         </div>
 
         {/* 4. Heat Mortality Risk Drop */}
-        <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06]">
-          <div className="flex items-center justify-between text-[#94A3AB] mb-1">
-            <span className="font-mono text-[9px] uppercase tracking-wider">
-              Heat Risk Drop
-            </span>
-            <ShieldCheck className="w-3 h-3 text-[#10B981]" />
+        <div className="p-3 rounded-xl bg-[#1A1816] border border-[#2E2B27]">
+          <div className="flex items-center justify-between text-[#B8B1A7] mb-1">
+            <span className="text-xs">Heat Risk Drop</span>
+            <ShieldCheck className="w-3.5 h-3.5 text-[#78B093]" />
           </div>
-          <span className="font-display text-sm font-bold text-[#10B981] tabular-nums block">
+          <span className="font-display text-base font-bold text-[#78B093] tabular-nums block">
             -{result.heatRiskReductionPct.toFixed(1)}%
           </span>
-          <span className="font-mono text-[9px] text-[#526068]">
-            CDC mortality model
+          <span className="text-[11px] text-[#8C857B]">
+            Lower heat stress
           </span>
         </div>
       </div>
