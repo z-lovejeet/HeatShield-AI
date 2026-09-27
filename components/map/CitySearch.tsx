@@ -37,7 +37,6 @@ export function CitySearch({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (
@@ -51,7 +50,6 @@ export function CitySearch({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Debounced Mapbox Geocoding search
   useEffect(() => {
     const trimmed = query.trim();
     if (trimmed.length < 2) {
@@ -76,8 +74,7 @@ export function CitySearch({
           setIsOpen(true);
           setHighlightedIndex(data.features?.length ? 0 : -1);
         }
-      } catch (err) {
-        // Silent fallback on network error
+      } catch {
         setResults([]);
       } finally {
         setIsLoading(false);
@@ -90,7 +87,6 @@ export function CitySearch({
   const handleSelectFeature = (feature: GeocodingFeature) => {
     const [lng, lat] = feature.center;
 
-    // Check if matches one of our calibrated benchmark cities
     const lowerName = feature.place_name.toLowerCase();
     if (lowerName.includes("portland") || lowerName.includes("lake oswego")) {
       onSelectPresetCity("portland");
@@ -141,95 +137,87 @@ export function CitySearch({
   };
 
   return (
-    <div ref={containerRef} className="relative z-30 w-full max-w-xl">
-      <div className="bezel-shell shadow-2xl">
-        <div className="bezel-core flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-1.5 bg-[#060809]/95 backdrop-blur-xl">
-          {/* Geocoding Search Input */}
-          <div className="relative flex-1 flex items-center">
-            <Search className="w-3.5 h-3.5 text-[#94A3AB] ml-3 mr-2.5 shrink-0 pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setIsOpen(true);
+    <div ref={containerRef} className="relative z-40 w-full max-w-2xl">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        {/* Search Input Box */}
+        <div className="relative flex-1 flex items-center bg-[#141311] border border-[#33302B] rounded-xl focus-within:border-[#5E9A7B] transition-colors">
+          <Search className="w-4 h-4 text-[#8C857B] ml-3.5 mr-2.5 shrink-0 pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setIsOpen(true);
+            }}
+            onFocus={() => {
+              if (results.length > 0) setIsOpen(true);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Search any US city (e.g., Seattle, Austin, Chicago)..."
+            aria-label="Search city or sector"
+            className="w-full bg-transparent text-xs sm:text-[13px] text-[#F5F3EF] placeholder:text-[#8C857B] focus:outline-none py-2 pr-8 font-sans"
+          />
+          {isLoading && (
+            <Loader2 className="w-4 h-4 text-[#78B093] animate-spin absolute right-3" />
+          )}
+          {!isLoading && query.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setResults([]);
+                setIsOpen(false);
               }}
-              onFocus={() => {
-                if (results.length > 0) setIsOpen(true);
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="Search any US city or sector (e.g., Seattle, Austin, Miami)..."
-              aria-label="Search city or sector"
-              className="w-full bg-transparent text-xs text-[#F4F6F7] placeholder:text-[#526068] focus:outline-none py-1.5 pr-7 font-sans"
-            />
-            {isLoading && (
-              <Loader2 className="w-3.5 h-3.5 text-[#10B981] animate-spin absolute right-2.5" />
-            )}
-            {!isLoading && query.length > 0 && (
+              aria-label="Clear search"
+              className="absolute right-2.5 text-[#8C857B] hover:text-[#F5F3EF] p-0.5 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Benchmark City Pills */}
+        <div className="flex items-center gap-1.5 bg-[#141311] p-1 rounded-xl border border-[#33302B] overflow-x-auto shrink-0">
+          {Object.values(SUPPORTED_CITIES).map((city) => {
+            const isActive = activeCityId === city.id && !customCityName;
+            return (
               <button
+                key={city.id}
                 type="button"
-                onClick={() => {
-                  setQuery("");
-                  setResults([]);
-                  setIsOpen(false);
-                }}
-                aria-label="Clear search"
-                className="absolute right-2 text-[#526068] hover:text-[#F4F6F7] p-0.5 transition-colors"
+                onClick={() => onSelectPresetCity(city.id)}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                  isActive
+                    ? "bg-[#5E9A7B] text-[#141311] font-semibold"
+                    : "text-[#B8B1A7] hover:text-[#F5F3EF] hover:bg-white/[0.04]"
+                }`}
               >
-                <X className="w-3.5 h-3.5" />
+                <span>
+                  {city.id === "portland"
+                    ? "Portland, OR"
+                    : city.id === "phoenix"
+                    ? "Phoenix, AZ"
+                    : "New York, NY"}
+                </span>
               </button>
-            )}
-          </div>
-
-          <div className="hidden sm:block h-4 w-[1px] bg-white/[0.08]" />
-
-          {/* Calibrated Benchmark City Quick Switcher */}
-          <div className="flex items-center gap-1 px-1 overflow-x-auto">
-            {Object.values(SUPPORTED_CITIES).map((city) => {
-              const isActive = activeCityId === city.id && !customCityName;
-              return (
-                <button
-                  key={city.id}
-                  type="button"
-                  onClick={() => onSelectPresetCity(city.id)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium tracking-tight transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                    isActive
-                      ? "bg-[#10B981]/15 text-[#F4F6F7] border border-[#10B981]/35 shadow-sm"
-                      : "text-[#94A3AB] hover:text-[#F4F6F7] hover:bg-white/[0.04] border border-transparent"
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      isActive ? "bg-[#10B981]" : "bg-[#526068]"
-                    }`}
-                  />
-                  <span>{city.id === "portland" ? "Portland" : city.id === "phoenix" ? "Phoenix" : "NYC"}</span>
-                  <span className="font-mono text-[10px] text-[#526068]">
-                    {city.state}
-                  </span>
-                </button>
-              );
-            })}
-            {customCityName && (
-              <span className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-[#10B981]/15 text-[#F4F6F7] border border-[#10B981]/35 flex items-center gap-1.5 whitespace-nowrap">
-                <Compass className="w-3 h-3 text-[#10B981]" />
-                <span>{customCityName}</span>
-              </span>
-            )}
-          </div>
+            );
+          })}
+          {customCityName && (
+            <span className="px-3 py-1 rounded-lg text-xs font-semibold bg-[#5E9A7B]/20 text-[#F5F3EF] border border-[#5E9A7B]/40 flex items-center gap-1.5 whitespace-nowrap">
+              <Compass className="w-3.5 h-3.5 text-[#78B093]" />
+              <span>{customCityName}</span>
+            </span>
+          )}
         </div>
       </div>
 
       {/* Autocomplete Suggestions Dropdown */}
       {isOpen && results.length > 0 && (
-        <div className="absolute left-0 right-0 mt-2 bezel-shell shadow-2xl overflow-hidden z-50">
-          <div className="bezel-core bg-[#060809]/95 backdrop-blur-xl py-1.5 divide-y divide-white/[0.05]">
-            <div className="px-3 py-1 flex items-center justify-between">
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#526068]">
-                Mapbox Satellite Geocoder
-              </span>
-              <span className="font-mono text-[10px] text-[#10B981]">
-                {results.length} SECTORS FOUND
+        <div className="absolute left-0 right-0 mt-2 rounded-xl bg-[#211F1C] border border-[#38342F] shadow-2xl overflow-hidden z-50">
+          <div className="py-1 divide-y divide-[#2F2C28]">
+            <div className="px-3.5 py-1.5 flex items-center justify-between text-[11px] text-[#8C857B]">
+              <span>Matching Cities</span>
+              <span className="font-mono text-[#78B093]">
+                {results.length} found
               </span>
             </div>
             {results.map((feature, idx) => {
@@ -242,22 +230,25 @@ export function CitySearch({
                   onClick={() => handleSelectFeature(feature)}
                   onMouseEnter={() => setHighlightedIndex(idx)}
                   className={`w-full text-left px-3.5 py-2.5 flex items-center justify-between gap-3 transition-colors ${
-                    isHighlighted ? "bg-[#10B981]/10" : "hover:bg-white/[0.03]"
+                    isHighlighted ? "bg-[#5E9A7B]/15" : "hover:bg-white/[0.03]"
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <MapPin
-                      className={`w-3.5 h-3.5 shrink-0 ${
-                        isHighlighted ? "text-[#10B981]" : "text-[#94A3AB]"
+                      className={`w-4 h-4 shrink-0 ${
+                        isHighlighted ? "text-[#78B093]" : "text-[#8C857B]"
                       }`}
                     />
                     <div className="truncate">
-                      <p className="text-xs font-medium text-[#F4F6F7] truncate">
+                      <p className="text-xs sm:text-[13px] font-medium text-[#F5F3EF] truncate">
+                        {feature.text}
+                      </p>
+                      <p className="text-xs text-[#8C857B] truncate">
                         {feature.place_name}
                       </p>
                     </div>
                   </div>
-                  <span className="font-mono text-[10px] text-[#94A3AB] tabular-nums shrink-0">
+                  <span className="font-mono text-[11px] text-[#8C857B] shrink-0 tabular-nums">
                     {lat.toFixed(2)}°N, {Math.abs(lng).toFixed(2)}°W
                   </span>
                 </button>
