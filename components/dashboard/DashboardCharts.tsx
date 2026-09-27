@@ -28,7 +28,7 @@ export interface DashboardChartsProps {
   annualCo2Tons: number;
 }
 
-const DONUT_COLORS = ["#10B981", "#34D399", "#059669"];
+const DONUT_COLORS = ["#5E9A7B", "#D98A5B", "#78B093"];
 
 export function DashboardCharts({
   cityName,
@@ -70,19 +70,19 @@ export function DashboardCharts({
   const donutData = [
     {
       name: "Urban Tree Canopy",
-      mechanism: "Evapotranspiration + Shade",
+      mechanism: "Evapotranspiration & Shade",
       sharePct: Math.round((treeWeight / totalWeight) * 100),
       avgCoolingF: "-3.8°F to -7.2°F",
     },
     {
-      name: "High-SRI Cool Roofs",
-      mechanism: "Solar Albedo α 0.13 → 0.78",
+      name: "Reflective Cool Roofs",
+      mechanism: "Solar Albedo 0.13 → 0.78",
       sharePct: Math.round((roofWeight / totalWeight) * 100),
       avgCoolingF: "-4.2°F to -8.4°F",
     },
     {
       name: "Permeable Bioswales",
-      mechanism: "Latent Heat Dissipation",
+      mechanism: "Evaporative Heat Dissipation",
       sharePct: Math.max(
         8,
         100 -
@@ -97,7 +97,6 @@ export function DashboardCharts({
   const baseAnnualCo2 = Math.max(45, annualCo2Tons || 112.4);
   const trajectoryData = Array.from({ length: 10 }, (_, i) => {
     const year = 2026 + i;
-    // As newly planted street trees grow canopy area over 10 years, cooling compounds by +45%
     const maturityFactor = 0.68 + 0.32 * (1 - Math.exp(-i / 3.8));
     const projectedCoolingF = Number(
       (coolingMagnitude * maturityFactor * 1.15).toFixed(1)
@@ -114,319 +113,313 @@ export function DashboardCharts({
   });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Row 1: Hotspot Bar Chart (col-span-7) + Intervention Donut Chart (col-span-5) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Chart 1: Hotspot Temperature Distribution (Baseline vs. Simulated) */}
-        <div className="lg:col-span-7 bezel-shell">
-          <div className="bezel-core p-6 sm:p-7 flex flex-col justify-between space-y-5 h-full">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-4">
-              <div>
-                <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-[#10B981] flex items-center gap-1.5">
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  01 · Real OSM Hotspot Thermal Distribution
-                </span>
-                <h3 className="font-display text-lg font-bold text-[#F4F6F7] mt-1">
-                  Baseline vs. Simulated Surface LST ({cityName})
-                </h3>
-              </div>
-              <div className="flex items-center gap-4 font-mono text-[10px]">
-                <span className="flex items-center gap-1.5 text-[#94A3AB]">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-[#3E4C54]" />
-                  Baseline (°F)
-                </span>
-                <span className="flex items-center gap-1.5 text-[#F4F6F7]">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-[#10B981]" />
-                  Simulated Cooled (°F)
-                </span>
-              </div>
-            </div>
-
-            <div className="h-[270px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={barData}
-                  margin={{ top: 10, right: 10, left: -16, bottom: 5 }}
-                  barGap={6}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.06)"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    stroke="#526068"
-                    tick={{
-                      fill: "#94A3AB",
-                      fontSize: 10,
-                      fontFamily: "var(--font-jetbrains-mono)",
-                    }}
-                    axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    domain={["dataMin - 12", "dataMax + 4"]}
-                    stroke="#526068"
-                    tick={{
-                      fill: "#94A3AB",
-                      fontSize: 10,
-                      fontFamily: "var(--font-jetbrains-mono)",
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                    unit="°F"
-                  />
-                  <Tooltip
-                    cursor={{ fill: "rgba(255,255,255,0.03)" }}
-                    content={({ active, payload }) => {
-                      if (!active || !payload || payload.length === 0)
-                        return null;
-                      const item = payload[0].payload;
-                      return (
-                        <div className="p-3 rounded-xl bg-[#060809]/95 border border-[#10B981]/40 shadow-2xl font-mono text-xs space-y-1.5">
-                          <div className="text-[10px] uppercase tracking-wider text-[#10B981]">
-                            {item.rank} · +{item.uhiAnomalyF}°F UHI ANOMALY
-                          </div>
-                          <div className="font-sans font-bold text-[#F4F6F7]">
-                            {item.fullName}
-                          </div>
-                          <div className="flex items-center justify-between gap-4 pt-1 border-t border-white/[0.08]">
-                            <span className="text-[#94A3AB]">
-                              Baseline: {item.baselineF}°F
-                            </span>
-                            <span className="text-[#10B981] font-bold">
-                              Cooled: {item.simulatedF}°F ({item.deltaF}°F)
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    }}
-                  />
-                  <Bar
-                    dataKey="baselineF"
-                    name="Baseline Peak (°F)"
-                    fill="#3E4C54"
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={28}
-                  />
-                  <Bar
-                    dataKey="simulatedF"
-                    name="Simulated Cooled (°F)"
-                    fill="#10B981"
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={28}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-
-        {/* Chart 2: Intervention Effectiveness Comparison Donut Chart */}
-        <div className="lg:col-span-5 bezel-shell">
-          <div className="bezel-core p-6 sm:p-7 flex flex-col justify-between space-y-5 h-full">
-            <div className="border-b border-white/[0.06] pb-4">
-              <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-[#10B981] flex items-center gap-1.5">
-                <PieChartIcon className="w-3.5 h-3.5" />
-                02 · Mitigation Contribution Mix
-              </span>
-              <h3 className="font-display text-lg font-bold text-[#F4F6F7] mt-1">
-                Intervention Thermal Attenuation Share
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
-              <div className="sm:col-span-6 h-[200px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={donutData}
-                      dataKey="sharePct"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={52}
-                      outerRadius={78}
-                      paddingAngle={4}
-                      stroke="none"
-                    >
-                      {donutData.map((entry, index) => (
-                        <Cell
-                          key={entry.name}
-                          fill={DONUT_COLORS[index % DONUT_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload || payload.length === 0)
-                          return null;
-                        const d = payload[0].payload;
-                        return (
-                          <div className="p-2.5 rounded-xl bg-[#060809]/95 border border-[#10B981]/40 font-mono text-[11px] space-y-1">
-                            <div className="font-sans font-bold text-[#F4F6F7]">
-                              {d.name} ({d.sharePct}%)
-                            </div>
-                            <div className="text-[#94A3AB] text-[10px]">
-                              {d.mechanism}
-                            </div>
-                            <div className="text-[#10B981]">
-                              Potential: {d.avgCoolingF}
-                            </div>
-                          </div>
-                        );
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="sm:col-span-6 space-y-3">
-                {donutData.map((item, idx) => (
-                  <div
-                    key={item.name}
-                    className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] flex flex-col gap-0.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold text-[#F4F6F7]">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{
-                            backgroundColor:
-                              DONUT_COLORS[idx % DONUT_COLORS.length],
-                          }}
-                        />
-                        {item.name}
-                      </span>
-                      <span className="font-mono text-xs font-bold text-[#10B981] tabular-nums">
-                        {item.sharePct}%
-                      </span>
-                    </div>
-                    <span className="font-mono text-[10px] text-[#94A3AB] pl-4">
-                      {item.mechanism}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Row 2: 10-Year Projected Cooling & Carbon Sequestration Trajectory */}
-      <div className="bezel-shell">
-        <div className="bezel-core p-6 sm:p-7 space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
+        <div className="lg:col-span-7 rounded-2xl border border-[#33302B] bg-[#211F1C] p-6 sm:p-7 flex flex-col justify-between space-y-5 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#2F2C28] pb-4">
             <div>
-              <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-[#10B981] flex items-center gap-1.5">
-                <TrendingDown className="w-3.5 h-3.5" />
-                03 · 10-Year Canopy Maturation & Carbon Trajectory (2026–2035)
+              <span className="text-[12px] font-medium text-[#78B093] flex items-center gap-1.5">
+                <BarChart3 className="w-4 h-4 text-[#5E9A7B]" />
+                Hotspot Temperature Comparison
               </span>
-              <h3 className="font-display text-lg font-bold text-[#F4F6F7] mt-1">
-                Compounding Peak Temperature Drop (-°F) & Cumulative CO₂ Sequestered (Metric Tons)
+              <h3 className="font-display text-lg font-bold text-[#F5F3EF] mt-1">
+                Baseline vs. Cooled Surface Temps ({cityName})
               </h3>
             </div>
-            <span className="font-mono text-[10px] text-[#94A3AB] bg-white/[0.03] border border-white/[0.08] px-3 py-1 rounded-full">
-              USDA Forest Service i-Tree Growth Curve
-            </span>
+            <div className="flex items-center gap-4 text-[12px]">
+              <span className="flex items-center gap-1.5 text-[#B8B1A7]">
+                <span className="w-3 h-3 rounded-sm bg-[#6E675F]" />
+                Baseline (°F)
+              </span>
+              <span className="flex items-center gap-1.5 text-[#F5F3EF]">
+                <span className="w-3 h-3 rounded-sm bg-[#5E9A7B]" />
+                Cooled (°F)
+              </span>
+            </div>
           </div>
 
-          <div className="h-[250px] w-full">
+          <div className="h-[270px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={trajectoryData}
-                margin={{ top: 10, right: 16, left: -10, bottom: 0 }}
+              <BarChart
+                data={barData}
+                margin={{ top: 10, right: 10, left: -12, bottom: 5 }}
+                barGap={6}
               >
-                <defs>
-                  <linearGradient id="emeraldGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.38} />
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.06)"
+                  stroke="rgba(255,248,235,0.06)"
                   vertical={false}
                 />
                 <XAxis
-                  dataKey="year"
-                  stroke="#526068"
+                  dataKey="name"
+                  stroke="#6E675F"
                   tick={{
-                    fill: "#94A3AB",
+                    fill: "#B8B1A7",
                     fontSize: 11,
                     fontFamily: "var(--font-jetbrains-mono)",
                   }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+                  axisLine={{ stroke: "rgba(255,248,235,0.1)" }}
                   tickLine={false}
                 />
                 <YAxis
-                  yAxisId="left"
-                  stroke="#526068"
+                  domain={["dataMin - 12", "dataMax + 4"]}
+                  stroke="#6E675F"
                   tick={{
-                    fill: "#10B981",
-                    fontSize: 10,
+                    fill: "#B8B1A7",
+                    fontSize: 11,
                     fontFamily: "var(--font-jetbrains-mono)",
                   }}
                   axisLine={false}
                   tickLine={false}
                   unit="°F"
                 />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  stroke="#526068"
-                  tick={{
-                    fill: "#94A3AB",
-                    fontSize: 10,
-                    fontFamily: "var(--font-jetbrains-mono)",
-                  }}
-                  axisLine={false}
-                  tickLine={false}
-                  unit=" t"
-                />
                 <Tooltip
-                  content={({ active, payload, label }) => {
+                  cursor={{ fill: "rgba(255,248,235,0.03)" }}
+                  content={({ active, payload }) => {
                     if (!active || !payload || payload.length === 0)
                       return null;
-                    const row = payload[0].payload;
+                    const item = payload[0].payload;
                     return (
-                      <div className="p-3 rounded-xl bg-[#060809]/95 border border-[#10B981]/40 shadow-2xl font-mono text-xs space-y-1">
-                        <div className="text-[#94A3AB] text-[10px]">
-                          PROJECTION YEAR {label}
+                      <div className="p-3.5 rounded-xl bg-[#1C1A17] border border-[#3E3A34] shadow-xl text-xs space-y-1.5">
+                        <div className="text-[11px] font-medium text-[#E09F67]">
+                          {item.rank} · +{item.uhiAnomalyF}°F Heat Anomaly
                         </div>
-                        <div className="text-[#10B981] font-bold">
-                          Peak Surface Reduction: -{row.coolingDropF}°F
+                        <div className="font-semibold text-[#F5F3EF] text-[13px]">
+                          {item.fullName}
                         </div>
-                        <div className="text-[#F4F6F7]">
-                          Cumulative CO₂ Avoided:{" "}
-                          {row.cumulativeCo2Tons.toLocaleString()} metric tons
+                        <div className="flex items-center justify-between gap-4 pt-1.5 border-t border-[#2F2C28] font-mono">
+                          <span className="text-[#B8B1A7]">
+                            Baseline: {item.baselineF}°F
+                          </span>
+                          <span className="text-[#78B093] font-semibold">
+                            Cooled: {item.simulatedF}°F ({item.deltaF}°F)
+                          </span>
                         </div>
                       </div>
                     );
                   }}
                 />
-                <Area
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="coolingDropF"
-                  stroke="#10B981"
-                  strokeWidth={2.5}
-                  fillOpacity={1}
-                  fill="url(#emeraldGrad)"
+                <Bar
+                  dataKey="baselineF"
+                  name="Baseline Peak (°F)"
+                  fill="#6E675F"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={28}
                 />
-                <Area
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="cumulativeCo2Tons"
-                  stroke="#94A3AB"
-                  strokeWidth={1.75}
-                  strokeDasharray="4 4"
-                  fill="none"
+                <Bar
+                  dataKey="simulatedF"
+                  name="Simulated Cooled (°F)"
+                  fill="#5E9A7B"
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={28}
                 />
-              </AreaChart>
+              </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
+
+        {/* Chart 2: Intervention Effectiveness Comparison Donut Chart */}
+        <div className="lg:col-span-5 rounded-2xl border border-[#33302B] bg-[#211F1C] p-6 sm:p-7 flex flex-col justify-between space-y-5 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
+          <div className="border-b border-[#2F2C28] pb-4">
+            <span className="text-[12px] font-medium text-[#78B093] flex items-center gap-1.5">
+              <PieChartIcon className="w-4 h-4 text-[#5E9A7B]" />
+              Cooling Strategy Share
+            </span>
+            <h3 className="font-display text-lg font-bold text-[#F5F3EF] mt-1">
+              Intervention Effectiveness Breakdown
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-12 items-center gap-4">
+            <div className="sm:col-span-6 h-[200px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={donutData}
+                    dataKey="sharePct"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={52}
+                    outerRadius={78}
+                    paddingAngle={4}
+                    stroke="none"
+                  >
+                    {donutData.map((entry, index) => (
+                      <Cell
+                        key={entry.name}
+                        fill={DONUT_COLORS[index % DONUT_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || payload.length === 0)
+                        return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="p-3 rounded-xl bg-[#1C1A17] border border-[#3E3A34] text-xs space-y-1 shadow-xl">
+                          <div className="font-semibold text-[#F5F3EF]">
+                            {d.name} ({d.sharePct}%)
+                          </div>
+                          <div className="text-[#B8B1A7] text-[11px]">
+                            {d.mechanism}
+                          </div>
+                          <div className="font-mono text-[#78B093]">
+                            Cooling Range: {d.avgCoolingF}
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="sm:col-span-6 space-y-2.5">
+              {donutData.map((item, idx) => (
+                <div
+                  key={item.name}
+                  className="p-3 rounded-xl bg-[#1A1816] border border-[#2F2C28] flex flex-col gap-1"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-[13px] font-semibold text-[#F5F3EF]">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{
+                          backgroundColor:
+                            DONUT_COLORS[idx % DONUT_COLORS.length],
+                        }}
+                      />
+                      {item.name}
+                    </span>
+                    <span className="font-mono text-xs font-semibold text-[#78B093] tabular-nums">
+                      {item.sharePct}%
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-[#8C857B] pl-4">
+                    {item.mechanism}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: 10-Year Projected Cooling & Carbon Sequestration Trajectory */}
+      <div className="rounded-2xl border border-[#33302B] bg-[#211F1C] p-6 sm:p-7 space-y-5 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#2F2C28] pb-4">
+          <div>
+            <span className="text-[12px] font-medium text-[#78B093] flex items-center gap-1.5">
+              <TrendingDown className="w-4 h-4 text-[#5E9A7B]" />
+              10-Year Tree Canopy Growth &amp; Carbon Trajectory (2026–2035)
+            </span>
+            <h3 className="font-display text-lg font-bold text-[#F5F3EF] mt-1">
+              Projected Surface Cooling (-°F) &amp; Cumulative Carbon Sequestered (Metric Tons)
+            </h3>
+          </div>
+          <span className="text-[12px] text-[#B8B1A7] bg-[#1A1816] border border-[#33302B] px-3.5 py-1.5 rounded-full">
+            USDA Forest Service i-Tree Growth Curve
+          </span>
+        </div>
+
+        <div className="h-[250px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart
+              data={trajectoryData}
+              margin={{ top: 10, right: 16, left: -10, bottom: 0 }}
+            >
+              <defs>
+                <linearGradient id="sageGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#5E9A7B" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#5E9A7B" stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="rgba(255,248,235,0.06)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="year"
+                stroke="#6E675F"
+                tick={{
+                  fill: "#B8B1A7",
+                  fontSize: 11,
+                  fontFamily: "var(--font-jetbrains-mono)",
+                }}
+                axisLine={{ stroke: "rgba(255,248,235,0.1)" }}
+                tickLine={false}
+              />
+              <YAxis
+                yAxisId="left"
+                stroke="#6E675F"
+                tick={{
+                  fill: "#78B093",
+                  fontSize: 11,
+                  fontFamily: "var(--font-jetbrains-mono)",
+                }}
+                axisLine={false}
+                tickLine={false}
+                unit="°F"
+              />
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                stroke="#6E675F"
+                tick={{
+                  fill: "#B8B1A7",
+                  fontSize: 11,
+                  fontFamily: "var(--font-jetbrains-mono)",
+                }}
+                axisLine={false}
+                tickLine={false}
+                unit=" t"
+              />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload || payload.length === 0)
+                    return null;
+                  const row = payload[0].payload;
+                  return (
+                    <div className="p-3.5 rounded-xl bg-[#1C1A17] border border-[#3E3A34] shadow-xl text-xs space-y-1.5">
+                      <div className="text-[#8C857B] text-[11px] font-medium">
+                        Year {label} Projection
+                      </div>
+                      <div className="text-[#78B093] font-semibold font-mono">
+                        Peak Surface Reduction: -{row.coolingDropF}°F
+                      </div>
+                      <div className="text-[#F5F3EF] font-mono">
+                        Cumulative CO₂ Avoided:{" "}
+                        {row.cumulativeCo2Tons.toLocaleString()} metric tons
+                      </div>
+                    </div>
+                  );
+                }}
+              />
+              <Area
+                yAxisId="left"
+                type="monotone"
+                dataKey="coolingDropF"
+                stroke="#5E9A7B"
+                strokeWidth={2.5}
+                fillOpacity={1}
+                fill="url(#sageGrad)"
+              />
+              <Area
+                yAxisId="right"
+                type="monotone"
+                dataKey="cumulativeCo2Tons"
+                stroke="#D98A5B"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                fill="none"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
     </div>

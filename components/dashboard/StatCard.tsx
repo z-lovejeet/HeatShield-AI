@@ -25,40 +25,43 @@ export function StatCard({
 }: StatCardProps) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 14 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        duration: 0.45,
+        duration: 0.4,
         delay,
         ease: [0.16, 1, 0.3, 1],
       }}
-      className="bezel-shell"
+      className="rounded-2xl border border-[#33302B] bg-[#211F1C] p-6 flex flex-col justify-between space-y-4 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)]"
     >
-      <div className="bezel-core p-6 h-full flex flex-col justify-between space-y-5">
-        <div className="flex items-center justify-between gap-2">
-          <span className="type-mono-badge text-[#5E6E77]">
-            {index} · {label}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <span className="text-[11px] font-medium text-[#8C857B] uppercase tracking-wider block">
+            {index}
           </span>
-          <div className="w-8 h-8 rounded-xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-center text-[#10B981]">
-            <Icon className="w-4 h-4 stroke-[1.75]" />
-          </div>
+          <span className="text-[13px] font-medium text-[#B8B1A7] mt-0.5 block">
+            {label}
+          </span>
         </div>
+        <div className="w-9 h-9 rounded-xl bg-[#5E9A7B]/12 border border-[#5E9A7B]/25 flex items-center justify-center text-[#78B093] shrink-0">
+          <Icon className="w-4 h-4 stroke-[1.75]" />
+        </div>
+      </div>
 
-        <div className="space-y-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <div className="type-mono-metric text-[#F4F6F7] tracking-tight">
-              {value}
-            </div>
-            {trendBadge && (
-              <span className="font-mono text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#10B981]/12 text-[#10B981] border border-[#10B981]/30 tabular-nums whitespace-nowrap">
-                {trendBadge}
-              </span>
-            )}
+      <div className="space-y-2 pt-1">
+        <div className="flex items-baseline justify-between gap-2 flex-wrap">
+          <div className="font-display text-2xl sm:text-3xl font-bold text-[#F5F3EF] tracking-tight tabular-nums">
+            {value}
           </div>
-          <p className="text-xs text-[#94A3AB] leading-relaxed font-sans">
-            {subtext}
-          </p>
+          {trendBadge && (
+            <span className="font-mono text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-[#5E9A7B]/12 text-[#78B093] border border-[#5E9A7B]/25 tabular-nums whitespace-nowrap">
+              {trendBadge}
+            </span>
+          )}
         </div>
+        <p className="text-[13px] text-[#B8B1A7] leading-relaxed">
+          {subtext}
+        </p>
       </div>
     </motion.div>
   );
