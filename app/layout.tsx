@@ -29,9 +29,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "HeatShield AI — Urban Thermal Intelligence & Microclimate Simulation",
+  title: "HeatShield AI — Urban Heat Island Mapper & Cool City Planner",
   description:
-    "High-resolution urban heat island telemetry and predictive cooling intervention workbench.",
+    "Interactive 3D urban heat island mapper, cooling intervention simulator, and AI climate planner.",
 };
 
 export default function RootLayout({
@@ -44,17 +44,9 @@ export default function RootLayout({
       lang="en"
       className={`dark ${spaceGrotesk.variable} ${plusJakarta.variable} ${jetbrainsMono.variable}`}
     >
-      <body className="font-sans bg-[#060809] text-[#F4F6F7] min-h-[100dvh] flex flex-col antialiased selection:bg-emerald-500/25 selection:text-emerald-200">
-        {/* Subtle Single-Tone Ambient Atmosphere (Fixed, GPU-safe) */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
-        >
-          <div className="absolute -top-[28rem] left-1/2 -translate-x-1/2 w-[72rem] h-[42rem] rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.055)_0%,rgba(6,8,9,0)_70%)]" />
-        </div>
-
+      <body className="font-sans bg-[#171614] text-[#F5F3EF] min-h-[100dvh] flex flex-col antialiased selection:bg-[#5E9A7B]/30 selection:text-[#F5F3EF]">
         <Header />
-        <main className="relative z-10 flex-1">{children}</main>
+        <main className="relative z-10 flex-1 flex flex-col">{children}</main>
       </body>
     </html>
   );
